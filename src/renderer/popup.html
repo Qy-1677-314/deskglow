@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' data:; img-src 'self' data: file:; style-src 'self' 'unsafe-inline'; script-src 'self'" />
+  <title>DeskGlow 面板</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <div class="card" id="card">
+    <div class="clip">
+      <button class="close" id="btnClose" title="关闭 (Esc)">
+        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+          <path d="M6 6l12 12M18 6L6 18" />
+        </svg>
+      </button>
+      <div class="body" id="body"></div>
+      <div class="foot">
+        <div class="search" id="searchWrap">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <circle cx="11" cy="11" r="7" /><path d="m20 20-3.2-3.2" />
+          </svg>
+          <input id="search" placeholder="搜索…" />
+        </div>
+        <button type="button" class="mode hide" id="btnKind" title="按文件格式分组">分类</button>
+        <div class="gname" id="gname"></div>
+        <div class="count" id="count"></div>
+      </div>
+      <div class="drop-mask" id="dropMask">
+        <div class="drop-tip">松手放进「文件收纳」</div>
+      </div>
+      <div class="toast" id="toast"></div>
+    </div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

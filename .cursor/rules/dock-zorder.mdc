@@ -1,0 +1,25 @@
+---
+description: 冻结 DeskGlow Dock 的 Win+D 层级。没有用户明确要求时，不要改摆放逻辑。
+alwaysApply: true
+---
+
+# Dock 层级已冻结
+
+Win+D / 显示桌面之后 Dock 必须留在桌面上；有普通窗口时 Dock 在那些窗口下面、桌面上面。这套行为已经在这台 Win11 24H2 上核对过。完整约定在 `AGENTS.md` 和 `.cursor/skills/deskgow-show-desktop/SKILL.md`。要改摆放方式之前先读 skill。
+
+用户没有明确要求改「显示桌面 / Dock 层级 / Win+D」时，不要改这些位置：
+
+- `src/main/ps/zorder.ps1` 里的 `Sink`、`SeatAboveDesktop`、`PinToDesktop`、`IsAbove`、`LowestRealApp`
+- `src/main/zorder.js` 里拉起辅助进程、判断进程已退出、以及启动前自检
+- Dock 窗口上的 `setAlwaysOnTop`、`setVisibleOnAllWorkspaces`
+
+禁止：
+
+- 对 Dock 调用 `setAlwaysOnTop(true)` 或 `setVisibleOnAllWorkspaces`
+- `SetParent` 到 `Progman`、`WorkerW` 或 `SHELLDLL_DefView`
+- 用 `HWND_TOP` 代替 `SeatAboveDesktop`
+- 把向上查找收成几百次，或加回 `AtTopOfNormalBand`
+- 在 `dock.js` 里用 rAF、改 `opacity`、`invalidate()` 来处理 Dock 消失
+- 把 `zorder.ps1` 存成不带 BOM 的 UTF-8
+
+辅助进程自己退出后 `killed` 仍是 `false`。`ensure()` 必须同时检查 `exitCode == null`。启动参数保留 `-ExecutionPolicy Bypass`。`exit` 回调只能清掉自己那个进程。

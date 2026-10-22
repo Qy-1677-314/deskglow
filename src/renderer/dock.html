@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' data:; img-src 'self' data: file:; style-src 'self' 'unsafe-inline'; script-src 'self'" />
+  <title>DeskGlow Dock</title>
+  <link rel="stylesheet" href="dock.css" />
+</head>
+<body>
+  <svg width="0" height="0" aria-hidden="true" style="position:absolute">
+    <filter id="iconFx" x="-80%" y="-90%" width="260%" height="280%" color-interpolation-filters="sRGB">
+      <feMorphology id="strokeMorph" in="SourceAlpha" operator="dilate" radius="0" result="dilated"/>
+      <feFlood id="strokeFlood" flood-color="#ffffff" flood-opacity="0" result="strokeColor"/>
+      <feComposite in="strokeColor" in2="dilated" operator="in" result="stroke"/>
+      <feGaussianBlur id="shadowBlur" in="SourceAlpha" stdDeviation="0" result="blur"/>
+      <feOffset id="shadowOffset" in="blur" dx="0" dy="0" result="offsetBlur"/>
+      <feFlood id="shadowFlood" flood-color="#141838" flood-opacity="0" result="shadowColor"/>
+      <feComposite in="shadowColor" in2="offsetBlur" operator="in" result="shadow"/>
+      <feMerge>
+        <feMergeNode in="shadow"/>
+        <feMergeNode in="stroke"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </svg>
+  <div class="stage" id="stage">
+    <div class="bar" id="bar">
+      <div class="bar-shade" id="barShade"></div>
+      <div class="bar-glow" id="barGlow"></div>
+      <div class="items-wrap" id="itemsWrap">
+        <div class="items" id="items"></div>
+        <div class="fade right" id="fadeRight"></div>
+        <div class="fade left" id="fadeLeft"></div>
+      </div>
+      <div class="pinned" id="pinned"></div>
+    </div>
+  </div>
+  <script src="group-icons.js"></script>
+  <script src="dock.js"></script>
+</body>
+</html>

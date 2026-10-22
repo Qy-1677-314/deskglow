@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: dgfile:; img-src 'self' data: dgfile:; font-src 'self' data: dgfile:; style-src 'self' 'unsafe-inline'; script-src 'self'" />
+  <title>DeskGlow 小组件</title>
+  <link rel="stylesheet" href="widget.css" />
+</head>
+<body>
+  <div class="stage" id="stage"></div>
+  <div class="guide-layer" id="guides"></div>
+  <div class="marquee" id="marquee" hidden></div>
+
+  <div class="hud" id="hud" hidden>
+    <div class="hud-group">
+      <button class="hud-btn primary" id="hudAdd">＋ 添加元素</button>
+      <div class="hud-menu" id="hudMenu" hidden></div>
+    </div>
+    <span class="hud-sep"></span>
+    <button class="hud-btn snap on" id="hudSnap" title="拖动时自动贴合其它元素与屏幕中线，按住 Alt 可临时关闭">自动对齐</button>
+    <span class="hud-sep"></span>
+    <span class="hud-label" id="hudAlignLabel">对齐</span>
+    <div class="hud-group" id="hudAlign">
+      <button class="hud-ico" data-align="left" title="靠左"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 5v14" stroke-width="2.2"/><rect x="8" y="9" width="12" height="6" rx="2" fill="currentColor" stroke="none"/></svg></button>
+      <button class="hud-ico" data-align="hcenter" title="水平居中"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3.5 9v6M20.5 9v6" opacity="0.72"/><rect x="7" y="9" width="10" height="6" rx="2" fill="currentColor" stroke="none"/></svg></button>
+      <button class="hud-ico" data-align="right" title="靠右"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M20 5v14" stroke-width="2.2"/><rect x="4" y="9" width="12" height="6" rx="2" fill="currentColor" stroke="none"/></svg></button>
+      <span class="hud-split"></span>
+      <button class="hud-ico" data-align="top" title="靠上"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 4h14" stroke-width="2.2"/><rect x="9" y="8" width="6" height="12" rx="2" fill="currentColor" stroke="none"/></svg></button>
+      <button class="hud-ico" data-align="vcenter" title="垂直居中"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M9 3.5h6M9 20.5h6" opacity="0.72"/><rect x="9" y="7" width="6" height="10" rx="2" fill="currentColor" stroke="none"/></svg></button>
+      <button class="hud-ico" data-align="bottom" title="靠下"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 20h14" stroke-width="2.2"/><rect x="9" y="4" width="6" height="12" rx="2" fill="currentColor" stroke="none"/></svg></button>
+    </div>
+    <span class="hud-sep"></span>
+    <span class="hud-pos" id="hudPos">未选中元素</span>
+    <span class="hud-tip">Ctrl 点选多个 · 空白处拖拽框选</span>
+    <button class="hud-btn done" id="hudDone">完成</button>
+  </div>
+
+  <script src="widget-fmt.js"></script>
+  <script src="widget.js"></script>
+</body>
+</html>

@@ -1,0 +1,332 @@
+/* 桌面小组件画布：窗口铺满工作区，平时完全透明且鼠标穿透 */
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-user-drag: none;
+  font-family: 'Segoe UI', 'Microsoft YaHei UI', 'PingFang SC', system-ui, sans-serif;
+}
+
+/* 非编辑状态下整层不吃事件，桌面图标照常点 */
+.stage {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+body.editing .stage { pointer-events: auto; }
+
+/* ---------------- 元素 ---------------- */
+.el {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  transform-origin: center center;
+  will-change: left, top;
+}
+.el.hide { display: none; }
+.el.fixed-h { justify-content: center; }
+
+.elbody {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.el.al-center .elbody { align-items: center; }
+.el.al-right .elbody { align-items: flex-end; }
+
+.ln { display: block; }
+.ln.mono { font-variant-numeric: tabular-nums; }
+.sub { display: block; opacity: 0.9; }
+
+/* 图片 */
+.el-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  -webkit-user-drag: none;
+  pointer-events: none;
+}
+
+/* ---------------- 电量：图标 / 电量条 / 百分比 ---------------- */
+/* 重叠模式的外层：电池 + 电量条共用同一宽度参照，
+   电量条按「身体」的百分比定位，因此右边不会顶到正极下面 */
+.bat-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  /* .elbody 设成居中/靠右时也要保持整宽，否则百分比参照系会变 */
+  align-self: stretch;
+  max-width: 100%;
+}
+/* 重叠模式：外框宽度跟着文字走（min-width 只是兜底下限），
+   所以字号调多大都不会把数字顶出电池外面 */
+.bat-inline {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  min-width: calc(var(--ic, 26px) * 1.9);
+  min-height: calc(var(--ic, 26px) * 0.95);
+  padding: 0 0.6em;
+  line-height: 1.16;
+}
+.bat-inline .bat-shape {
+  position: absolute;
+  inset: 0;
+  display: block;
+}
+.bat-inline .bat-shape svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+/* 电池正极已经画在 SVG 里，跟着外框一起缩放 */
+.bat-inline .bat-num {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+.bat-inline .bat-bolt {
+  width: 0.7em;
+  height: 0.7em;
+  margin-right: 0.22em;
+  flex: none;
+}
+.bat-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.bat-row .bat-ic { display: flex; align-items: center; justify-content: center; }
+.bat-row .bat-num { display: block; white-space: nowrap; }
+.bat-track {
+  display: block;
+  border-radius: 99px;
+  overflow: hidden;
+  background: rgba(140, 146, 170, 0.3);
+}
+.bat-track i {
+  display: block;
+  height: 100%;
+  border-radius: 99px;
+  transition: width 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.bat-track.sep { margin-top: 4px; }
+
+/* ---------------- 编辑态 ---------------- */
+body.editing .el { cursor: move; }
+
+/* 编辑态：框子贴着元素盒走。元素盒已经由 tightenBox() 削到文字墨迹上，
+   所以这里不再外扩 —— 外扩那几像素就是对不齐的元凶。 */
+body.editing .el::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 1px dashed rgba(124, 107, 255, 0.75);
+  border-radius: 5px;
+  pointer-events: none;
+}
+body.editing .el.sel::after {
+  border: 1px solid #7c6bff;
+  box-shadow: 0 0 0 3px rgba(124, 107, 255, 0.22);
+}
+/* 多选时，最后点的那个稍微亮一点，手柄也只给它 */
+body.editing .el.sel.sel-primary::after {
+  box-shadow: 0 0 0 3px rgba(124, 107, 255, 0.3), 0 0 18px rgba(124, 107, 255, 0.35);
+}
+
+/* ---------------- 对齐参考线 / 框选 ---------------- */
+.guide-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 86;
+}
+.guide-layer i {
+  position: absolute;
+  display: block;
+  background: #ff4d8d;
+  box-shadow: 0 0 5px rgba(255, 77, 141, 0.75);
+}
+.guide-layer i.gx { width: 1px; }
+.guide-layer i.gy { height: 1px; }
+
+.marquee {
+  position: fixed;
+  z-index: 84;
+  pointer-events: none;
+  border: 1px solid rgba(124, 107, 255, 0.9);
+  background: rgba(124, 107, 255, 0.13);
+  border-radius: 3px;
+  box-shadow: 0 0 0 1px rgba(124, 107, 255, 0.16) inset;
+}
+.marquee[hidden] { display: none; }
+
+.hz {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  margin: -5px 0 0 -5px;
+  border-radius: 2px;
+  background: #fff;
+  border: 1.5px solid #7c6bff;
+  box-shadow: 0 1px 3px rgba(20, 24, 60, 0.35);
+  z-index: 3;
+}
+.hz[data-h='nw'] { left: 0; top: 0; cursor: nwse-resize; }
+.hz[data-h='n'] { left: 50%; top: 0; cursor: ns-resize; }
+.hz[data-h='ne'] { left: 100%; top: 0; cursor: nesw-resize; }
+.hz[data-h='e'] { left: 100%; top: 50%; cursor: ew-resize; }
+.hz[data-h='se'] { left: 100%; top: 100%; cursor: nwse-resize; }
+.hz[data-h='s'] { left: 50%; top: 100%; cursor: ns-resize; }
+.hz[data-h='sw'] { left: 0; top: 100%; cursor: nesw-resize; }
+.hz[data-h='w'] { left: 0; top: 50%; cursor: ew-resize; }
+
+/* ---------------- 编辑工具条 ---------------- */
+.hud {
+  position: fixed;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 10px;
+  border-radius: 15px;
+  background: rgba(22, 25, 42, 0.86);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 14px 34px rgba(8, 10, 26, 0.42);
+  backdrop-filter: blur(18px) saturate(1.2);
+  color: #f2f4ff;
+  font-size: 12px;
+  z-index: 90;
+  white-space: nowrap;
+}
+.hud[hidden] { display: none; }
+.hud-group { position: relative; display: flex; align-items: center; gap: 3px; }
+.hud-sep { width: 1px; height: 20px; background: rgba(255, 255, 255, 0.16); }
+.hud-split { width: 6px; }
+
+.hud-btn {
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.07);
+  color: #eef1ff;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.16s, border-color 0.16s;
+}
+.hud-btn:hover { background: rgba(255, 255, 255, 0.16); }
+.hud-btn.on {
+  background: rgba(124, 107, 255, 0.36);
+  border-color: rgba(140, 126, 255, 0.72);
+  color: #fff;
+  font-weight: 600;
+}
+.hud-btn.on:hover { background: rgba(124, 107, 255, 0.5); }
+.hud-btn.primary {
+  background: linear-gradient(135deg, #7c6bff, #5b8cff);
+  border-color: transparent;
+  font-weight: 600;
+}
+.hud-btn.primary:hover { filter: brightness(1.08); }
+.hud-btn.done {
+  background: rgba(18, 184, 134, 0.92);
+  border-color: transparent;
+  font-weight: 600;
+}
+.hud-btn.done:hover { filter: brightness(1.06); }
+
+.hud-ico {
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: rgba(238, 241, 255, 0.78);
+  cursor: pointer;
+  transition: background 0.16s, color 0.16s;
+}
+.hud-ico svg { width: 18px; height: 18px; }
+.hud-ico:hover { background: rgba(255, 255, 255, 0.14); color: #fff; }
+.hud-ico[disabled] { opacity: 0.32; pointer-events: none; }
+
+.hud-pos {
+  font-family: 'Cascadia Mono', Consolas, monospace;
+  font-size: 11.5px;
+  color: rgba(238, 241, 255, 0.72);
+  min-width: 100px;
+  text-align: center;
+}
+.hud-tip { font-size: 11px; color: rgba(238, 241, 255, 0.44); }
+.hud-label { font-size: 11px; color: rgba(238, 241, 255, 0.46); }
+
+.hud-menu {
+  position: absolute;
+  top: 38px;
+  left: 0;
+  min-width: 208px;
+  padding: 6px;
+  border-radius: 12px;
+  background: rgba(26, 29, 48, 0.97);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 16px 36px rgba(8, 10, 26, 0.5);
+  z-index: 95;
+}
+.hud-menu[hidden] { display: none; }
+.hud-menu button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 7px 9px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #eef1ff;
+  font-size: 12px;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.hud-menu button:hover { background: rgba(124, 107, 255, 0.28); }
+.hud-menu .mi {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  background: rgba(124, 107, 255, 0.24);
+  font-size: 11px;
+  color: #cfc7ff;
+  flex: none;
+}
+.hud-menu .mtxt { display: block; }
+.hud-menu small { display: block; color: rgba(238, 241, 255, 0.45); font-size: 10.5px; margin-top: 1px; }

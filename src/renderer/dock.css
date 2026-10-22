@@ -1,0 +1,398 @@
+:root {
+  --icon: 52px;
+  --gap: 11px;
+  --pad-x: 13px;
+  --pad-y: 10px;
+  --radius: 26px;
+  --alpha: 0.66;
+  --blur: 26px;
+  --grow: 16px;
+  /* 栏下方给外投影留的空间。投影画在 .bar-shade 上，并在这段距离内淡到完全透明，
+     这样窗口边界切到的是已经看不见的部分，不会再出现一条硬边。 */
+  --shpad: 44px;
+  --shade-rgb: 28, 32, 74;
+  --shade-a: 0.22;
+  --shade-shift: 2px;
+
+  /* 背景底色（RGB 三元组），由 JS 按「背景颜色」覆盖；空则用主题默认 */
+  --bg-rgb: 255, 255, 255;
+
+  --bar-top: rgba(var(--bg-rgb), calc(var(--alpha) * 1.20));
+  --bar-bottom: rgba(var(--bg-rgb), calc(var(--alpha) * 0.90));
+  --bar-border: rgba(255, 255, 255, 0.85);
+  /* 只保留顶边高光。外投影改由 .bar-shade 绘制，避免 box-shadow 被窗口切出硬边 */
+  --shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  --text: #22263a;
+  --tip-bg: rgba(24, 26, 40, 0.88);
+  --tip-text: #fff;
+  --hover-bg: rgba(255, 255, 255, 0.7);
+  --sep: rgba(60, 66, 110, 0.14);
+  --accent: #6c5ce7;
+
+  /* 图标描边 / 阴影（JS 生成整串 filter） */
+  --icon-filter: drop-shadow(0 3px 7px rgba(20, 24, 60, 0.20));
+}
+
+body[data-theme='dark'] {
+  --bg-rgb: 30, 32, 46;
+  --bar-border: rgba(255, 255, 255, 0.12);
+  --shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10);
+  --text: #eef1ff;
+  --tip-bg: rgba(245, 246, 255, 0.94);
+  --tip-text: #1b1e2c;
+  --hover-bg: rgba(255, 255, 255, 0.14);
+  --sep: rgba(255, 255, 255, 0.16);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  background: transparent;
+  overflow: hidden;
+  width: 100%;
+  height: 100%;
+  user-select: none;
+  cursor: default;
+  font-family: 'Segoe UI', 'Microsoft YaHei UI', 'PingFang SC', system-ui, sans-serif;
+}
+
+/* 顶部预留放大所需空间，避免图标被窗口裁掉 */
+.stage {
+  width: 100%;
+  height: 100%;
+  padding: var(--grow) 14px calc(var(--shpad) + 10px);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  -webkit-app-region: no-drag;
+}
+
+/* ---------------- 玻璃条 ---------------- */
+.bar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: var(--pad-y) var(--pad-x);
+  border-radius: var(--radius);
+  background: linear-gradient(168deg, var(--bar-top), var(--bar-bottom));
+  border: 1px solid var(--bar-border);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(var(--blur)) saturate(190%);
+  -webkit-backdrop-filter: blur(var(--blur)) saturate(190%);
+  /* 不要过渡 width / background。毛玻璃层在 Windows 上跟着动画改尺寸时，
+     会把背后的壁纸一块一块闪出来。图标自己的放大动画不受影响。 */
+  transition: transform 0.42s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.3s ease;
+  animation: rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+  max-width: none;
+}
+
+body[data-theme='dark'] .bar {
+  box-shadow: var(--shadow);
+}
+
+/* 关闭玻璃底板：只剩图标 */
+body[data-glass='false'] .bar {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+body[data-glass='false'] .bar-glow,
+body[data-glass='false'] .bar-shade,
+body[data-barshadow='false'] .bar-glow,
+body[data-barshadow='false'] .bar-shade,
+body[data-collapsed='true'] .bar-glow,
+body[data-collapsed='true'] .bar-shade { display: none; }
+body[data-glass='false'] .fade { display: none; }
+
+/* 外投影：渐变在元素内部就淡到 0，窗口边切到的是空白，不会留下硬边黑带。
+   不用 filter:blur，透明窗口上的模糊层会不规则闪烁。 */
+.bar-shade {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% - 10px + var(--shade-shift));
+  height: calc(var(--shpad) + 10px);
+  pointer-events: none;
+  z-index: -1;
+  /* 纵向在盒子底边淡到 0；横向只柔化两端，长 Dock 不会中间一块、两边没影 */
+  background: linear-gradient(
+    to bottom,
+    rgba(var(--shade-rgb), var(--shade-a)) 0%,
+    rgba(var(--shade-rgb), calc(var(--shade-a) * 0.40)) 34%,
+    rgba(var(--shade-rgb), calc(var(--shade-a) * 0.10)) 64%,
+    transparent 100%
+  );
+  -webkit-mask-image: linear-gradient(to right, transparent 0%, #000 7%, #000 93%, transparent 100%);
+  mask-image: linear-gradient(to right, transparent 0%, #000 7%, #000 93%, transparent 100%);
+}
+
+/* 这层以前是写死的青紫光。它不读投影颜色，黑投影也会被染成淡蓝，所以关掉。 */
+.bar-glow { display: none; }
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(16px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* ---------------- 图标区 ---------------- */
+.items-wrap { position: relative; display: flex; min-width: 0; flex: 0 0 auto; }
+
+.items {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--gap);
+  overflow: visible;
+  max-width: 100%;
+}
+
+body[data-layout='wrap'] .items {
+  flex-wrap: wrap;
+  max-width: var(--maxw, 1200px);
+  row-gap: calc(var(--gap) + 2px);
+}
+
+/* 多行放大向上长出本行，玻璃条和换行容器都不裁切 */
+body[data-layout='wrap'] .bar,
+body[data-layout='wrap'] .items-wrap,
+body[data-layout='wrap'] .items {
+  overflow: visible;
+}
+
+.pinned { display: flex; align-items: center; gap: 8px; flex: none; }
+.pinned:empty { display: none; }
+
+.fade {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 26px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+  z-index: 3;
+  display: none;
+}
+.fade.right { right: -2px; background: linear-gradient(to right, rgba(255, 255, 255, 0), var(--bar-top)); }
+.fade.left { left: -2px; background: linear-gradient(to left, rgba(255, 255, 255, 0), var(--bar-top)); }
+.fade.show { display: block; opacity: 1; }
+
+.item {
+  position: relative;
+  width: calc(var(--icon) + 12px);
+  height: calc(var(--icon) + 12px);
+  border-radius: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex: 0 0 auto;
+  transform: translate(var(--tx, 0px), var(--ty, 0px));
+  transition: transform var(--mag-dur, 220ms) var(--mag-ease, cubic-bezier(0.25, 0.9, 0.25, 1)), background 0.2s ease;
+  will-change: transform;
+  -webkit-app-region: no-drag;
+}
+
+/* 只放大图标。名字如果跟在同一个 transform 里，会被一起放大并顶出窗口。 */
+.glyph {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform: scale(var(--s, 1));
+  transform-origin: 50% 100%;
+  transition: transform var(--mag-dur, 220ms) var(--mag-ease, cubic-bezier(0.25, 0.9, 0.25, 1));
+  pointer-events: none;
+}
+
+.glyph::after {
+  content: '';
+  position: absolute;
+  inset: 2px;
+  border-radius: 13px;
+  background: var(--hover-bg);
+  opacity: 0;
+  transition: opacity 0.18s ease;
+  z-index: -1;
+}
+
+body[data-hoverbg='true'] .item:hover .glyph::after { opacity: 1; }
+.item:hover { z-index: 6; }
+.item.dragging { opacity: 0.32; }
+.item.drop-target .glyph::after,
+.item.over-archive .glyph::after { opacity: 1; box-shadow: inset 0 0 0 2px var(--accent); }
+
+.item .icon {
+  width: var(--icon);
+  height: var(--icon);
+  object-fit: contain;
+  pointer-events: none;
+  filter: var(--icon-filter);
+  transition: filter 0.25s ease;
+}
+
+.item.missing .icon { filter: grayscale(1) opacity(0.45); }
+
+/* 无图标兜底 */
+.fallback {
+  width: var(--icon);
+  height: var(--icon);
+  border-radius: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: calc(var(--icon) * 0.38);
+  font-weight: 600;
+  background: linear-gradient(150deg, #7c6bff, #22d3ee);
+  filter: var(--icon-filter);
+  pointer-events: none;
+}
+
+/* 文件夹（分组） */
+.folder {
+  width: var(--icon);
+  height: var(--icon);
+  border-radius: 14px;
+  padding: 5px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 3px;
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.66), rgba(255, 255, 255, 0.30));
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  filter: var(--icon-filter);
+  pointer-events: none;
+}
+
+body[data-theme='dark'] .folder {
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.08));
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+.folder img { width: 100%; height: 100%; object-fit: contain; }
+.folder .fallback { width: 100%; height: 100%; border-radius: 5px; font-size: 10px; filter: none; }
+.folder.custom {
+  padding: 0;
+  display: block;
+  overflow: hidden;
+  background: transparent;
+  border: none;
+}
+.folder.custom img { object-fit: cover; }
+.folder .preset {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.folder .preset svg { width: 58%; height: 58%; }
+
+/* 文件收纳 */
+.archive-tile {
+  position: relative;
+  width: var(--icon);
+  height: var(--icon);
+  border-radius: 14px;
+  background: linear-gradient(155deg, rgba(108, 92, 231, 0.95), rgba(34, 211, 238, 0.88));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  filter: var(--icon-filter);
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.archive-tile svg { width: 62%; height: 62%; opacity: 0.96; }
+
+/* 分隔线 */
+.sep {
+  width: 1px;
+  height: calc(var(--icon) * 0.6);
+  margin: 0 2px;
+  background: linear-gradient(180deg, transparent, var(--sep), transparent);
+  flex: none;
+}
+
+/* 提示气泡 */
+.tip {
+  position: absolute;
+  left: 50%;
+  /* --s 是图标倍率。名字贴在放大后的图标顶上，自身不再被放大 */
+  bottom: calc(var(--s, 1) * 100% + 8px);
+  transform: translateX(-50%) translateY(4px);
+  padding: 5px 10px;
+  border-radius: 9px;
+  background: var(--tip-bg);
+  color: var(--tip-text);
+  font-size: 12px;
+  line-height: 1.2;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.16s ease, transform 0.16s ease, bottom var(--mag-dur, 220ms) var(--mag-ease, cubic-bezier(0.25, 0.9, 0.25, 1));
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.22);
+  z-index: 30;
+}
+
+.item:hover .tip { opacity: 1; transform: translateX(-50%) translateY(0); }
+body:not([data-labels='true']) .tip { display: none; }
+
+/* 拖入文件时的高亮 */
+body.drop-file .bar {
+  box-shadow: 0 0 0 2px var(--accent), var(--shadow);
+}
+body.drop-file .items::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border-radius: 16px;
+  border: 1.5px dashed rgba(108, 92, 231, 0.55);
+  pointer-events: none;
+}
+
+/* 自动隐藏 */
+/* 收起时只露出顶部一小条作为「把手」，颜色写死，避免透明度设成 0 时完全看不见 */
+body[data-collapsed='true'] .bar {
+  transform: translateY(calc(100% + var(--shpad, 10px) - 11px));
+  opacity: 1;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(244, 246, 252, 0.92));
+  border-color: rgba(20, 24, 56, 0.10);
+  box-shadow: 0 -3px 12px rgba(20, 24, 56, 0.12);
+}
+
+/* 空状态 */
+.empty {
+  padding: 4px 18px;
+  color: var(--text);
+  opacity: 0.55;
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+/* 拖拽幽灵 */
+.ghost {
+  position: fixed;
+  pointer-events: none;
+  z-index: 999;
+  width: var(--icon);
+  height: var(--icon);
+  opacity: 0.92;
+  transform: translate(-50%, -50%) scale(1.1);
+  filter: drop-shadow(0 12px 24px rgba(0, 0, 0, 0.3));
+}
+
+.group-flash { animation: pop 0.45s cubic-bezier(0.22, 1, 0.36, 1); }
+@keyframes pop {
+  0% { transform: scale(1); }
+  45% { transform: scale(1.26) rotate(-3deg); }
+  100% { transform: scale(1); }
+}
