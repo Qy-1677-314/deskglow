@@ -1,0 +1,7 @@
+node_modules/
+shots/
+electron.zip
+.compat
+*.log
+src/main/ps/_err.txt
+release/

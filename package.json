@@ -1,0 +1,40 @@
+{
+  "name": "deskglow",
+  "productName": "DeskGlow 桌面美化",
+  "version": "1.0.0",
+  "description": "桌面快捷方式收纳坞 + 任务栏整理 + 自由摆放的桌面小组件",
+  "main": "src/main/main.js",
+  "author": "DeskGlow",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "start:compat": "electron . --no-sandbox",
+    "dev": "electron . --dev",
+    "capture": "electron . --capture",
+    "dist": "node tools/pack.js"
+  },
+  "build": {
+    "appId": "com.deskglow.app",
+    "productName": "DeskGlow",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "src/main/ps/**"
+    ],
+    "win": {
+      "target": [
+        "portable"
+      ],
+      "icon": "src/main/assets/icon.ico",
+      "signAndEditExecutable": false
+    }
+  },
+  "devDependencies": {
+    "electron": "^33.2.0"
+  }
+}

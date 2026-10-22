@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' data:; img-src 'self' data: file:; style-src 'self' 'unsafe-inline'; script-src 'self'" />
+  <title>DeskGlow 控制面板</title>
+  <link rel="stylesheet" href="panel.css" />
+</head>
+<body>
+  <svg width="0" height="0" aria-hidden="true" style="position:absolute">
+    <filter id="iconFx" x="-80%" y="-90%" width="260%" height="280%" color-interpolation-filters="sRGB">
+      <feMorphology id="strokeMorph" in="SourceAlpha" operator="dilate" radius="0" result="dilated"/>
+      <feFlood id="strokeFlood" flood-color="#ffffff" flood-opacity="0" result="strokeColor"/>
+      <feComposite in="strokeColor" in2="dilated" operator="in" result="stroke"/>
+      <feGaussianBlur id="shadowBlur" in="SourceAlpha" stdDeviation="0" result="blur"/>
+      <feOffset id="shadowOffset" in="blur" dx="0" dy="0" result="offsetBlur"/>
+      <feFlood id="shadowFlood" flood-color="#141838" flood-opacity="0" result="shadowColor"/>
+      <feComposite in="shadowColor" in2="offsetBlur" operator="in" result="shadow"/>
+      <feMerge>
+        <feMergeNode in="shadow"/>
+        <feMergeNode in="stroke"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </svg>
+  <div class="app">
+    <div class="titlebar">
+      <div class="brand">
+        <div class="logo"><span></span></div>
+        <h1>DeskGlow</h1>
+        <span class="v" id="verTag"></span>
+      </div>
+      <div class="win-controls">
+        <button class="win-btn" id="btnMin" title="最小化">
+          <svg viewBox="0 0 12 12" width="11" height="11" stroke="currentColor" stroke-width="1.2"><path d="M2.5 6h7" /></svg>
+        </button>
+        <button class="win-btn" id="btnMax" title="最大化">
+          <svg viewBox="0 0 12 12" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="2.5" y="2.5" width="7" height="7" rx="1" /></svg>
+        </button>
+        <button class="win-btn close" id="btnClose" title="关闭">
+          <svg viewBox="0 0 12 12" width="11" height="11" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M3 3l6 6M9 3l-6 6" /></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="shell">
+      <nav class="rail">
+        <button class="nav-item active" data-page="overview">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg>
+          概览
+        </button>
+        <button class="nav-item" data-page="shortcuts">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 7H7a5 5 0 0 0 0 10h2"/><path d="M15 7h2a5 5 0 0 1 0 10h-2"/><path d="M8.5 12h7"/></svg>
+          快捷方式
+        </button>
+        <button class="nav-item" data-page="appearance">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 1 0 0 18c1.4 0 2-1 2-2s-.8-2-.8-2.8c0-.8.6-1.2 1.6-1.2H16a5 5 0 0 0 5-5c0-3.9-4-7-9-7z"/><circle cx="8" cy="9" r="1.2" fill="currentColor" stroke="none"/><circle cx="12" cy="7" r="1.2" fill="currentColor" stroke="none"/><circle cx="16" cy="9" r="1.2" fill="currentColor" stroke="none"/></svg>
+          外观
+        </button>
+        <button class="nav-item" data-page="widgets">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.6"/><path d="M12 7.4V12l3.2 1.9"/></svg>
+          小组件
+        </button>
+        <button class="nav-item" data-page="groups">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8a2 2 0 0 1 2-2h3.6c.5 0 1 .2 1.3.6l1 1.2c.3.4.8.6 1.3.6H19a2 2 0 0 1 2 2v6.4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+          分组
+        </button>
+        <button class="nav-item" data-page="archive">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.6 13.4 6 6.4A2 2 0 0 1 7.9 5h8.2a2 2 0 0 1 1.9 1.4l2.4 7"/><path d="M3.6 13.4h4.1l1.1 2.2h6.4l1.1-2.2h4.1v3.3a2 2 0 0 1-2 2H5.6a2 2 0 0 1-2-2z"/></svg>
+          文件
+        </button>
+        <button class="nav-item" data-page="about">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><circle cx="12" cy="7.8" r="0.9" fill="currentColor" stroke="none"/></svg>
+          关于
+        </button>
+        <div class="spacer"></div>
+        <div class="rail-foot">
+          快捷键<br/>
+          <b>Ctrl + Alt + D</b> 显示或隐藏
+        </div>
+      </nav>
+
+      <div class="main">
+        <div class="page-head">
+          <div>
+            <h2 id="pageTitle">概览</h2>
+            <p id="pageDesc">桌面整洁度一眼掌握</p>
+          </div>
+          <div class="page-actions" id="pageActions"></div>
+        </div>
+
+        <div class="content" id="content">
+          <!-- 概览 -->
+          <section class="page active" id="page-overview">
+            <div class="hero">
+              <h3 id="heroTitle">已经收好了</h3>
+              <p id="heroDesc">图标在底部 Dock，文件收在最右侧。</p>
+              <div class="stats">
+                <div class="stat"><div class="n" id="statShortcuts">0</div><div class="l">图标</div></div>
+                <div class="stat"><div class="n" id="statGroups">0</div><div class="l">分组</div></div>
+                <div class="stat"><div class="n" id="statFiles">0</div><div class="l">文件</div></div>
+              </div>
+              <div class="hero-actions">
+                <button class="btn on-hero" id="btnGotoShortcuts">去快捷方式</button>
+              </div>
+            </div>
+
+            <div class="grid-2">
+              <button class="tile toggle" id="tileDockBtn" data-toggle="dock">
+                <div class="ic">
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 18h16"/><rect x="6" y="10" width="12" height="5" rx="2"/></svg>
+                </div>
+                <div class="tx"><div class="n" id="tileDock">显示中</div><div class="l">显示 Dock</div></div>
+                <span class="tgl"></span>
+              </button>
+              <button class="tile toggle" id="tileLoginBtn" data-toggle="login">
+                <div class="ic">
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 3v3M12 18v3M4.2 7.5l2.6 1.5M17.2 15l2.6 1.5M4.2 16.5l2.6-1.5M17.2 9l2.6-1.5"/><circle cx="12" cy="12" r="3.2"/></svg>
+                </div>
+                <div class="tx"><div class="n" id="tileLogin">关闭</div><div class="l">开机自启</div></div>
+                <span class="tgl"></span>
+              </button>
+            </div>
+
+            <div class="card">
+              <div class="card-title"><h3>用法</h3></div>
+              <div class="status-line">拖到图标两侧可以换位置，分组也能拖。拖到图标中间会建组。</div>
+              <div class="status-line">拖出 Dock 会先确认。文件仍留在文件夹里，用右侧开关可以再打开。</div>
+              <div class="status-line">右键 Dock 空白处打开面板。</div>
+            </div>
+          </section>
+
+          <!-- 快捷方式 -->
+          <section class="page" id="page-shortcuts">
+            <div class="card">
+              <div class="card-title">
+                <div><h3>Dock 上的图标 <span class="num" id="dockCount">0</span></h3><div class="desc">箭头调顺序，开关决定是否显示。关掉不会删除文件。</div></div>
+              </div>
+              <div class="list" id="shortcutList"></div>
+            </div>
+
+            <div class="card">
+              <div class="card-title">
+                <div><h3>未显示</h3><div class="desc">还在文件夹里，打开开关就会回到 Dock</div></div>
+                <button class="btn sm" id="btnAddAll">全部显示</button>
+              </div>
+              <div class="list" id="unusedList"></div>
+            </div>
+          </section>
+
+          <!-- 分组 -->
+          <section class="page" id="page-groups">
+            <div class="card">
+              <div class="card-title">
+                <div><h3>新建分组</h3><div class="desc">勾选图标，收进同一个文件夹</div></div>
+              </div>
+              <div class="flex">
+                <div class="field grow" style="max-width:260px">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M4 12h16M4 17h10"/></svg>
+                  <input id="newGroupName" placeholder="名称，例如办公" />
+                </div>
+                <button class="btn primary" id="btnNewGroup">创建分组</button>
+              </div>
+              <div class="mt12 picker" id="groupPicker"></div>
+              <div class="mt8 muted" style="font-size:11.5px">创建后，这些图标会收进同一个文件夹</div>
+            </div>
+
+            <div class="card">
+              <div class="card-title"><h3>已有分组 <span class="num" id="groupCount">0</span></h3></div>
+              <div id="groupList"></div>
+            </div>
+          </section>
+
+          <!-- 文件收纳 -->
+          <section class="page" id="page-archive">
+            <div class="card">
+              <div class="card-title">
+                <div><h3>软件文件夹</h3><div class="desc">文件放这里，快捷方式放「快捷方式」文件夹。都不会因为从 Dock 移出而被删除。</div></div>
+              </div>
+              <div class="vault-path" id="vaultPathBox">
+                <div class="vault-row"><span class="vault-k">根目录</span><span class="vault-v" id="vaultRoot">—</span></div>
+                <div class="vault-row"><span class="vault-k">快捷方式</span><span class="vault-v" id="vaultShortcuts">—</span></div>
+                <div class="vault-row"><span class="vault-k">文件收纳</span><span class="vault-v" id="vaultArchive">—</span></div>
+              </div>
+              <div class="flex mt12" style="flex-wrap:wrap">
+                <button class="btn" id="btnOpenVault">打开文件夹</button>
+                <button class="btn primary" id="btnImportFiles">收进桌面文件</button>
+                <button class="btn" id="btnPickArchive">添加文件…</button>
+                <span class="muted" id="vaultHint" style="font-size:11.5px;align-self:center"></span>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-title">
+                <div><h3>收纳规则</h3><div class="desc">符合规则的桌面文件会出现在右侧蓝色文件夹里</div></div>
+              </div>
+              <label class="switch" style="display:flex;margin-bottom:10px">
+                <input type="checkbox" id="swFolders" /><span class="track"></span>
+                <span class="label">包含文件夹</span>
+              </label>
+              <label class="switch" style="display:flex">
+                <input type="checkbox" id="swOther" /><span class="track"></span>
+                <span class="label">包含其它类型</span>
+              </label>
+            </div>
+
+            <div class="card">
+              <div class="card-title">
+                <div><h3>扩展名</h3><div class="desc">点 × 去掉，下面可以再加</div></div>
+              </div>
+              <div class="chips" id="extList"></div>
+              <div class="flex mt12">
+                <div class="field" style="width:200px">
+                  <input id="extInput" placeholder="输入扩展名，如 .psd" />
+                </div>
+                <button class="btn" id="btnAddExt">添加</button>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-title"><h3>会收进来的文件 <span class="num" id="archiveCount">0</span></h3></div>
+              <div class="list" id="archivePreview"></div>
+            </div>
+          </section>
+
+          <!-- 外观 -->
+          <section class="page" id="page-appearance">
+            <div class="card" id="sec-preview">
+              <div class="card-title">
+                <div>
+                  <h3>实时预览</h3>
+                  <div class="desc">改下面任意一项，这里马上跟着变</div>
+                </div>
+              </div>
+              <div class="preview" id="preview">
+                <div class="p-dock" id="pDock">
+                  <div class="p-shade" id="pShade"></div>
+                  <div class="p-item"></div><div class="p-item g"></div><div class="p-item"></div>
+                  <div class="p-item"></div><div class="p-item g"></div><div class="p-item"></div>
+                  <div class="p-item a"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="jump-row" id="appearanceJumps">
+              <button type="button" data-jump="sec-preview">预览</button>
+              <button type="button" data-jump="sec-icons">图标</button>
+              <button type="button" data-jump="sec-bar">底板</button>
+              <button type="button" data-jump="sec-place">位置</button>
+              <button type="button" data-jump="sec-taskbar">任务栏</button>
+            </div>
+
+            <div class="sec-label" id="sec-icons">图标</div>
+            <div class="grid-2">
+              <div class="card">
+                <div class="card-title">
+                  <div>
+                    <h3>大小和间距</h3>
+                    <div class="desc">每个图标占多大、彼此隔多远</div>
+                  </div>
+                </div>
+                <div class="slider-row">
+                  <div class="lbl">图标大小</div>
+                  <div class="ctl"><input type="range" id="rngIcon" min="16" max="96" step="1" /><span class="val" id="valIcon">56</span></div>
+                </div>
+                <div class="slider-row">
+                  <div class="lbl">图标间距</div>
+                  <div class="ctl"><input type="range" id="rngGap" min="2" max="28" step="1" /><span class="val" id="valGap">12</span></div>
+                </div>
+                <div class="slider-row">
+                  <div class="lbl">排成一行<small id="fitHint">按当前屏幕宽度计算</small></div>
+                  <div class="ctl" style="width:auto">
+                    <button class="btn sm" id="btnFitRow">塞进一行</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="card" id="blockHover">
+                <div class="card-title">
+                  <div>
+                    <h3>悬停</h3>
+                    <div class="desc">鼠标放上去时，图标怎么反应</div>
+                  </div>
+                </div>
+                <div class="slider-row">
+                  <div class="lbl">显示名称<small>悬停时出现名字</small></div>
+                  <div class="ctl" style="justify-content:flex-end">
+                    <label class="switch"><input type="checkbox" id="swLabels" /><span class="track"></span></label>
+                  </div>
+                </div>
+                <div class="slider-row">
+                  <div class="lbl">背后浅色<small>图标后面垫一层底</small></div>
+                  <div class="ctl" style="width:auto;justify-content:flex-end">
+                    <label class="color-dot depends" title="底色"><input type="color" id="inHoverColor" value="#ffffff" /></label>
+                    <label class="switch"><input type="checkbox" id="swHoverBg" /><span class="track"></span></label>
+                  </div>
+                </div>
+                <div class="slider-row">
+                  <div class="lbl">放大倍率<small>1.00 等于不放大</small></div>
+                  <div class="ctl"><input type="range" id="rngMagScale" min="100" max="250" step="1" /><span class="val" id="valMagScale">1.40</span></div>
+                </div>
+                <div class="slider-row">
+                  <div class="lbl">带动旁边<small>准星左右各影响几个</small></div>
+                  <div class="ctl"><input type="range" id="rngMagCount" min="1" max="9" step="2" /><span class="val" id="valMagCount">5</span></div>
+                </div>
+                <div class="slider-row">
+                  <div class="lbl">反应速度<small>数值越大越慢、越柔和</small></div>
+                  <div class="ctl"><input type="range" id="rngMagSpeed" min="40" max="520" step="10" /><span class="val" id="valMagSpeed">220</span></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="grid-2">
+              <div class="card" id="blockStroke">
+                <div class="card-title">
+                  <div>
+                    <h3>图标描边</h3>
+                    <div class="desc">给图标加一圈边，深色壁纸上更清楚</div>
+                  </div>
+                </div>
+                <div class="slider-row">
+                  <div class="lbl">描边</div>
+                  <div class="ctl" style="width:auto;justify-content:flex-end">
+                    <label class="color-dot depends" title="描边颜色"><input type="color" id="inStrokeColor" value="#ffffff" /></label>
+                    <label class="switch"><input type="checkbox" id="swStroke" /><span class="track"></span></label>
+                  </div>
+                </div>
+                <div class="slider-row depends">
+                  <div class="lbl">粗细</div>
+                  <div class="ctl"><input type="range" id="rngStrokeW" min="0.5" max="4" step="0.5" /><span class="val" id="valStrokeW">1.5</span></div>
+                </div>
+              </div>
+
+              <div class="card" id="blockIconShadow">
+                <div class="card-title">
+                  <div>
+                    <h3>图标投影</h3>
+                    <div class="desc">每个图标自己脚下的一小块影子</div>
+                  </div>
+                </div>
+                <div class="slider-row">
+                  <div class="lbl">投影</div>
+                  <div class="ctl" style="width:auto;justify-content:flex-end">
+                    <label class="color-dot depends" title="投影颜色"><input type="color" id="inShadowColor" value="#141838" /></label>
+                    <label class="switch"><input type="checkbox" id="swShadow" /><span class="track"></span></label>
+                  </div>
+                </div>
+                <div class="slider-row depends">
+                  <div class="lbl">模糊<small>越大越散</small></div>
+                  <div class="ctl"><input type="range" id="rngShadowBlur" min="0" max="30" step="1" /><span class="val" id="valShadowBlur">7</span></div>
+                </div>
+                <div class="slider-row depends">
+                  <div class="lbl">下移<small>正数往下，负数往上</small></div>
+                  <div class="ctl"><input type="range" id="rngShadowY" min="-6" max="16" step="1" /><span class="val" id="valShadowY">3</span></div>
+                </div>
+                <div class="slider-row depends">
+                  <div class="lbl">深浅</div>
+                  <div class="ctl"><input type="range" id="rngShadowAlpha" min="0" max="70" step="1" /><span class="val" id="valShadowAlpha">22%</span></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="sec-label" id="sec-bar">底板</div>
+            <div class="grid-2">
+              <div class="card" id="blockGlass">
+                <div class="card-title">
+                  <div>
+                    <h3>玻璃底板</h3>
+                    <div class="desc">图标后面那条半透明的条</div>
+                  </div>
+                </div>
+                <div class="slider-row">
+                  <div class="lbl">显示底板<small>关掉后只留图标</small></div>
+                  <div class="ctl" style="justify-content:flex-end">
+                    <label class="switch"><input type="checkbox" id="swGlass" /><span class="track"></span></label>
+                  </div>
+                </div>
+                <div class="slider-row">
+                  <div class="lbl">深浅</div>
+                  <div class="ctl" style="justify-content:flex-end">
+                    <div class="seg" id="segTheme">
+                      <button data-theme="light">浅色</button>
+                      <button data-theme="dark">深色</button>
+                    </div>
+                  </div>
+                </div>
+                <div class="slider-row depends-glass">
+                  <div class="lbl">颜色<small>第一格是跟随深浅</small></div>
+                  <div class="ctl" style="width:auto">
+                    <div class="swatches" id="swBg"></div>
+                    <label class="color-dot" title="自定义颜色"><input type="color" id="inBgColor" value="#ffffff" /></label>
+                  </div>
+                </div>
+                <div class="slider-row depends-glass">
+                  <div class="lbl">不透明度</div>
+                  <div class="ctl"><input type="range" id="rngOpacity" min="0" max="100" step="1" /><span class="val" id="valOpacity">64%</span></div>
+                </div>
+                <div class="slider-row depends-glass">
+                  <div class="lbl">背景模糊<small>越大，后面的壁纸越糊</small></div>
+                  <div class="ctl"><input type="range" id="rngBlur" min="0" max="45" step="1" /><span class="val" id="valBlur">26</span></div>
+                </div>
+                <div class="slider-row depends-glass">
+                  <div class="lbl">圆角</div>
+                  <div class="ctl"><input type="range" id="rngRadius" min="8" max="44" step="1" /><span class="val" id="valRadius">26</span></div>
+                </div>
+              </div>
+
+              <div class="card" id="blockBarShadow">
+                <div class="card-title">
+                  <div>
+                    <h3>底板投影</h3>
+                    <div class="desc">整条 Dock 投在桌面上的影子</div>
+                  </div>
+                </div>
+                <div class="field-hint" id="barShadowHint" hidden>玻璃底板关着，这条投影不会显示。</div>
+                <div class="slider-row">
+                  <div class="lbl">投影</div>
+                  <div class="ctl" style="width:auto;justify-content:flex-end">
+                    <label class="color-dot depends" title="投影颜色"><input type="color" id="inBarShadowColor" value="#1c204a" /></label>
+                    <label class="switch"><input type="checkbox" id="swBarShadow" /><span class="track"></span></label>
+                  </div>
+                </div>
+                <div class="slider-row depends">
+                  <div class="lbl">模糊<small>越大，影子拖得越长、越软</small></div>
+                  <div class="ctl"><input type="range" id="rngBarBlur" min="0" max="60" step="1" /><span class="val" id="valBarBlur">24</span></div>
+                </div>
+                <div class="slider-row depends">
+                  <div class="lbl">下移<small>正数远离底板，负数贴上去</small></div>
+                  <div class="ctl"><input type="range" id="rngBarY" min="-10" max="40" step="1" /><span class="val" id="valBarY">14</span></div>
+                </div>
+                <div class="slider-row depends">
+                  <div class="lbl">深浅</div>
+                  <div class="ctl"><input type="range" id="rngBarAlpha" min="0" max="80" step="1" /><span class="val" id="valBarAlpha">22%</span></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="sec-label" id="sec-place">位置</div>
+            <div class="grid-2">
+              <div class="card">
+                <div class="card-title">
+                  <div>
+                    <h3>停靠位置</h3>
+                    <div class="desc">Dock 离屏幕底边多远</div>
+                  </div>
+                </div>
+                <div class="slider-row">
+                  <div class="lbl">离底边<small>0 是贴住屏幕底</small></div>
+                  <div class="ctl"><input type="range" id="rngOffset" min="0" max="80" step="1" /><span class="val" id="valOffset">8</span></div>
+                </div>
+              </div>
+              <div class="card">
+                <div class="card-title">
+                  <div>
+                    <h3>恢复默认</h3>
+                    <div class="desc">只恢复外观，不动图标和分组</div>
+                  </div>
+                </div>
+                <button class="btn" id="btnResetAppearance">恢复默认外观</button>
+              </div>
+            </div>
+
+            <!-- 任务栏整理（并入外观页底部） -->
+            <div class="sec-label" id="sec-taskbar">任务栏</div>
+            <div class="card">
+              <div class="card-title"><h3>任务栏</h3><div class="desc">清掉固定图标，托盘保持常显</div></div>
+              <div class="alert">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 9v4"/><circle cx="12" cy="17" r="0.8" fill="currentColor"/><path d="M10.3 4.3 2.6 18a2 2 0 0 0 1.7 3h15.4a2 2 0 0 0 1.7-3L13.7 4.3a2 2 0 0 0-3.4 0z"/></svg>
+                <div>会改系统设置，资源管理器会闪一下。事先自动备份，可以还原。</div>
+              </div>
+
+              <div class="grid-2 mt12">
+                <div class="card inner">
+                  <div class="card-title">
+                    <div><h3>固定图标</h3><div class="desc">清掉任务栏中间的固定项</div></div>
+                  </div>
+                  <div class="status-line"><span class="pill muted" id="pillPin">检测中…</span></div>
+                  <div class="flex mt12">
+                    <button class="btn primary" id="btnPinOn">清空固定图标</button>
+                    <button class="btn" id="btnPinRestore">还原</button>
+                  </div>
+                </div>
+
+                <div class="card inner">
+                  <div class="card-title">
+                    <div><h3>托盘常显</h3><div class="desc">不再收进箭头里</div></div>
+                  </div>
+                  <div class="status-line"><span class="pill muted" id="pillTray">检测中…</span></div>
+                  <div class="flex mt12">
+                    <button class="btn primary" id="btnTrayOn">全部显示</button>
+                    <button class="btn" id="btnTrayRestore">还原</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="status-line mt12">
+                修改后图标没有立刻生效？手动重启一次资源管理器即可：
+                <button class="btn sm" id="btnExplorer" style="margin-left:8px">重启资源管理器</button>
+              </div>
+              <div class="status-line" id="backupInfo">备份状态：未知</div>
+            </div>
+          </section>
+
+          <!-- 小组件 -->
+          <section class="page" id="page-widgets">
+            <div class="card">
+              <div class="card-title">
+                <div>
+                  <h3>桌面小组件</h3>
+                  <div class="desc">每个元素独立摆放，位置、字号、颜色、阴影都能单独调</div>
+                </div>
+                <label class="switch"><input type="checkbox" id="swWidgets" /><span class="track"></span></label>
+              </div>
+              <div class="wtool">
+                <button class="btn primary" id="btnWEdit">可视化编辑</button>
+                <div class="wadd-wrap">
+                  <button class="btn" id="btnWAdd">添加元素</button>
+                  <div class="wadd-menu" id="wAddMenu" hidden></div>
+                </div>
+                <button class="btn" id="btnWImport">导入预设</button>
+                <button class="btn" id="btnWExport">导出预设</button>
+                <span class="wspacer"></span>
+                <span class="wtool-note" id="wCount"></span>
+              </div>
+              <div class="field-hint w-hint">
+                点「可视化编辑」可以直接在桌面上拖动元素，方向键微调、Shift＋方向键走 10px，工具条上还能一键靠边或居中。
+                调好的组合可以导出成 <code>.dskset</code> 预设文件，别人导入后跟你桌面上一模一样。
+              </div>
+            </div>
+
+            <div class="wlist" id="wElList"></div>
+            <datalist id="wFontList"></datalist>
+            <div class="wempty" id="wEmpty" hidden>
+              <div>还没有元素</div>
+              <button class="btn sm mt8" id="btnWAdd2">添加第一个元素</button>
+            </div>
+
+            <div class="card">
+              <div class="card-title">
+                <div><h3>维护</h3><div class="desc">元素乱了可以先恢复默认，再重新调</div></div>
+              </div>
+              <div class="flex" style="flex-wrap:wrap">
+                <button class="btn" id="btnWReset">恢复默认元素</button>
+                <button class="btn" id="btnWFolder">打开配置目录</button>
+                <span class="muted" id="wFontInfo"></span>
+              </div>
+            </div>
+          </section>
+
+          <!-- 关于 -->
+          <section class="page" id="page-about">
+            <div class="card">
+              <div class="card-title"><h3>DeskGlow 桌面美化</h3></div>
+              <div class="status-line">版本：<span id="aboutVer">1.0.0</span></div>
+              <div class="status-line">运行环境：Electron + Windows Shell API</div>
+              <div class="status-line" style="word-break:break-all">配置目录：<span id="cfgPath" class="muted"></span></div>
+              <div class="status-line">更新：选择 .dgupdate 只替换程序文件，配置目录不动。</div>
+              <div class="flex mt12" style="flex-wrap:wrap">
+                <button class="btn" id="btnOpenCfg">打开配置目录</button>
+                <button class="btn" id="btnUpdate">安装更新包</button>
+                <button class="btn" id="btnRestart">重启程序</button>
+                <button class="btn danger" id="btnQuit">退出 DeskGlow</button>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-title"><h3>数据说明</h3></div>
+              <div class="status-line">· 所有配置保存在本地 config.json，不上传任何服务器。</div>
+              <div class="status-line">· 图标从系统缓存中提取（128px），首次启动会花几秒，之后直接读缓存。</div>
+              <div class="status-line">· 任务栏修改前的备份位于配置目录下的 <span class="kbd">taskbar-backup</span>。</div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="toast-wrap" id="toasts"></div>
+  <script src="group-icons.js"></script>
+  <script src="widget-fmt.js"></script>
+  <script src="panel.js"></script>
+</body>
+</html>
