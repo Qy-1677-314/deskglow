@@ -685,7 +685,7 @@ input[type='range']::-webkit-slider-thumb {
   background: rgba(108, 92, 231, 0.045);
   border: 1px solid rgba(108, 92, 231, 0.10);
 }
-.vault-row { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.vault-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .vault-k {
   flex: none;
   width: 56px;
@@ -702,6 +702,27 @@ input[type='range']::-webkit-slider-thumb {
   text-overflow: ellipsis;
   white-space: nowrap;
   user-select: text;
+}
+.vault-tag {
+  flex: none;
+  font-size: 10.5px;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: 999px;
+  color: var(--accent);
+  background: rgba(108, 92, 231, 0.1);
+  border: 1px solid rgba(108, 92, 231, 0.16);
+}
+.vault-tag[hidden] { display: none; }
+.vault-btn { flex: none; }
+/* 说明文字用中性色，不借用 field-hint 的警示黄底 */
+.vault-hint {
+  margin: 10px 0 0;
+  padding: 0;
+  color: var(--sub);
+  background: transparent;
+  font-size: 11.5px;
+  line-height: 1.6;
 }
 
 /* ---------------- 小组件：工具栏 ---------------- */

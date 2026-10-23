@@ -193,6 +193,9 @@ function viewFingerprint(s) {
     st.archiveCount,
     v.desktopFiles,
     v.desktopShortcuts,
+    v.root,
+    v.shortcuts,
+    v.archive,
   ].join('|');
 }
 
@@ -405,6 +408,27 @@ function renderGroups() {
 }
 
 /* ------------------------------ 文件收纳 ------------------------------ */
+async function relocateVault(kind, useDefault, btn) {
+  if (btn) btn.disabled = true;
+  let r = null;
+  try {
+    r = await api.invoke('vault:relocate', { kind, useDefault: !!useDefault });
+  } catch (err) {
+    r = { ok: false, error: String((err && err.message) || err) };
+  }
+  if (btn && btn.isConnected) btn.disabled = false;
+  if (!r || r.canceled) return;
+  if (!r.ok) return toast(r.error || '没能换到新位置', 'err');
+  if (r.vault) {
+    state.vault = { ...(state.vault || {}), ...r.vault };
+    renderArchive();
+  }
+  const failed = (r.failed || []).length;
+  if (failed) toast(`已迁移 ${r.moved} 个项目，还有 ${failed} 个没搬动（仍在原文件夹）`, 'err');
+  else if (r.moved) toast(`已迁移 ${r.moved} 个项目到新位置`);
+  else toast('文件夹位置已更新');
+}
+
 function renderArchive() {
   const a = state.archive;
   const v = state.vault || {};
@@ -412,9 +436,19 @@ function renderArchive() {
   $('#swOther').checked = !!a.includeOther;
   $('#archiveCount').textContent = state.archiveItems.length;
 
-  if ($('#vaultRoot')) $('#vaultRoot').textContent = v.root || '—';
-  if ($('#vaultShortcuts')) $('#vaultShortcuts').textContent = v.shortcuts || '—';
-  if ($('#vaultArchive')) $('#vaultArchive').textContent = v.archive || '—';
+  const custom = v.custom || {};
+  const row = (pathId, tagId, value, isCustom) => {
+    const el = $('#' + pathId);
+    if (el) el.textContent = value || '—';
+    const tag = $('#' + tagId);
+    if (tag) tag.hidden = !isCustom;
+  };
+  row('vaultRoot', 'vaultRootTag', v.root, custom.root);
+  row('vaultShortcuts', 'vaultShortcutsTag', v.shortcuts, custom.shortcuts);
+  row('vaultArchive', 'vaultArchiveTag', v.archive, custom.archive);
+  const resetBtn = $('#btnVaultReset');
+  if (resetBtn) resetBtn.hidden = !(custom.root || custom.shortcuts || custom.archive);
+
   if ($('#vaultHint')) {
     const nf = Number(v.desktopFiles) || 0;
     $('#vaultHint').textContent = nf
@@ -1291,6 +1325,17 @@ function bindEvents() {
 
   // DeskGlow 软件文件夹
   $('#btnOpenVault').onclick = () => api.invoke('vault:open', 'root');
+  const vaultBox = $('#vaultPathBox');
+  if (vaultBox) {
+    vaultBox.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-move]');
+      if (!btn) return;
+      relocateVault(btn.dataset.move, false, btn);
+    });
+  }
+  if ($('#btnVaultReset')) {
+    $('#btnVaultReset').onclick = (e) => relocateVault('root', true, e.currentTarget);
+  }
   $('#btnImportFiles').onclick = async (e) => {
     const btn = e.currentTarget;
     btn.disabled = true;

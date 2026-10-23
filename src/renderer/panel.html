@@ -178,14 +178,34 @@
                 <div><h3>软件文件夹</h3><div class="desc">文件放在「文件收纳」。从 Dock 移出时，快捷方式会回到桌面。</div></div>
               </div>
               <div class="vault-path" id="vaultPathBox">
-                <div class="vault-row"><span class="vault-k">根目录</span><span class="vault-v" id="vaultRoot">—</span></div>
-                <div class="vault-row"><span class="vault-k">快捷方式</span><span class="vault-v" id="vaultShortcuts">—</span></div>
-                <div class="vault-row"><span class="vault-k">文件收纳</span><span class="vault-v" id="vaultArchive">—</span></div>
+                <div class="vault-row">
+                  <span class="vault-k">根目录</span>
+                  <span class="vault-v" id="vaultRoot">—</span>
+                  <span class="vault-tag" id="vaultRootTag" hidden>自定义</span>
+                  <button class="btn sm vault-btn" data-move="root">更改位置</button>
+                </div>
+                <div class="vault-row">
+                  <span class="vault-k">快捷方式</span>
+                  <span class="vault-v" id="vaultShortcuts">—</span>
+                  <span class="vault-tag" id="vaultShortcutsTag" hidden>自定义</span>
+                  <button class="btn sm vault-btn" data-move="shortcuts">更改位置</button>
+                </div>
+                <div class="vault-row">
+                  <span class="vault-k">文件收纳</span>
+                  <span class="vault-v" id="vaultArchive">—</span>
+                  <span class="vault-tag" id="vaultArchiveTag" hidden>自定义</span>
+                  <button class="btn sm vault-btn" data-move="archive">更改位置</button>
+                </div>
+              </div>
+              <div class="field-hint vault-hint">
+                换位置会把现有文件一起搬过去，Dock 上的图标和收纳夹会自动指到新地址。根目录挪动时，
+                下面的两个文件夹会跟着一起搬；也可以只给其中一个单独指定位置。
               </div>
               <div class="flex mt12" style="flex-wrap:wrap">
                 <button class="btn" id="btnOpenVault">打开文件夹</button>
                 <button class="btn primary" id="btnImportFiles">收进桌面文件</button>
                 <button class="btn" id="btnPickArchive">添加文件…</button>
+                <button class="btn" id="btnVaultReset" hidden>恢复默认位置</button>
                 <span class="muted" id="vaultHint" style="font-size:11.5px;align-self:center"></span>
               </div>
             </div>

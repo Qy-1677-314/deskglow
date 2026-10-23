@@ -30,6 +30,8 @@ const DEFAULTS = {
   },
   items: [],
   removedPaths: [],
+  // DeskGlow 软件文件夹位置。'' = 默认（%USERPROFILE%\DeskGlow 及其下的两个子文件夹）
+  vault: { root: '', shortcuts: '', archive: '' },
   archive: {
     enabled: true,
     name: '文件收纳',
