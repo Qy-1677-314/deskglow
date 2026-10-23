@@ -44,6 +44,8 @@ const DEFAULTS = {
     includeFolders: true,
     includeOther: false,
     groupByExt: false,
+    view: 'icon',
+    sort: 'off',
     order: [],
   },
   taskbar: { autoTray: false, autoPin: false },

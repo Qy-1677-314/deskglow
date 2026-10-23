@@ -32,6 +32,7 @@ function renderGroup() {
     return;
   }
   $('searchWrap').classList.add('hide');
+  showArchiveTools(false);
   $('count').textContent = `${group.children.length} 个图标`;
 
   const gname = $('gname');
@@ -94,8 +95,26 @@ function fileKind(it) {
   return 'other';
 }
 
-function fileCell(it) {
+function fileTime(ms) {
+  if (!ms) return '';
+  const d = new Date(ms);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+function fileCell(it, tile) {
   const ext = it.isDir ? '文件夹' : (it.ext || '').replace('.', '').toUpperCase();
+  const when = fileTime(it.mtime);
+  const sub = when ? `${ext} · ${when}` : ext;
+  if (tile) {
+    return `<div class="cell tile" data-path="${esc(it.path)}" data-cat="${fileKind(it)}" title="拖动排序">
+      ${iconOrFallback(it)}
+      <div class="meta">
+        <div class="nm" title="${esc(it.name)}">${esc(baseName(it.name, it.isDir ? '' : it.ext))}</div>
+        <div class="ext">${esc(sub)}</div>
+      </div>
+    </div>`;
+  }
   return `<div class="cell" data-path="${esc(it.path)}" data-cat="${fileKind(it)}" title="拖动排序">
     ${iconOrFallback(it)}
     <div class="nm" title="${esc(it.name)}">${esc(baseName(it.name, it.isDir ? '' : it.ext))}</div>
@@ -103,16 +122,26 @@ function fileCell(it) {
   </div>`;
 }
 
+function showArchiveTools(on) {
+  $('viewSeg').classList.toggle('hide', !on);
+  $('btnKind').classList.toggle('hide', !on);
+  $('sortSeg').classList.toggle('hide', !on);
+}
+
 /* ------------------------------ 文件收纳 ------------------------------ */
 function renderArchive() {
   const all = state.archiveItems || [];
+  const arc = state.archive || {};
   $('searchWrap').classList.remove('hide');
   $('gname').textContent = '';
   $('gname').onclick = null;
-  const grouped = !!(state.archive && state.archive.groupByExt);
-  const kindBtn = $('btnKind');
-  kindBtn.classList.remove('hide');
-  kindBtn.classList.toggle('on', grouped);
+  showArchiveTools(true);
+  const grouped = !!arc.groupByExt;
+  const tile = arc.view === 'tile';
+  const sort = arc.sort || 'off';
+  $('btnKind').classList.toggle('on', grouped);
+  $('viewSeg').querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.view === (tile ? 'tile' : 'icon')));
+  $('sortSeg').querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.sort === sort));
 
   let list = all;
   if (query.trim()) {
@@ -121,13 +150,15 @@ function renderArchive() {
   }
 
   $('count').textContent = `${list.length} 个文件`;
+  const cell = (it) => fileCell(it, tile);
+  const gridCls = tile ? 'grid tiles' : 'grid';
 
   if (!list.length) {
-    $('body').innerHTML = `<div class="empty-state">${all.length ? '没有匹配的文件' : '桌面上暂时没有需要收纳的文件'}</div>`;
+    $('body').innerHTML = `<div class="empty-state">${all.length ? '没有匹配的文件' : '桌面上暂时没有需要收纳的文件<br/>右键可以新建文件夹'}</div>`;
     return;
   }
   if (!grouped) {
-    $('body').innerHTML = `<div class="grid">${list.map(fileCell).join('')}</div>`;
+    $('body').innerHTML = `<div class="${gridCls}">${list.map(cell).join('')}</div>`;
     return;
   }
   const buckets = new Map();
@@ -139,7 +170,7 @@ function renderArchive() {
   $('body').innerHTML = KINDS.filter(([id]) => buckets.has(id))
     .map(([id, name]) => `<section class="sec" data-cat="${id}">
       <div class="sec-h">${name}</div>
-      <div class="grid">${buckets.get(id).map(fileCell).join('')}</div>
+      <div class="${gridCls}">${buckets.get(id).map(cell).join('')}</div>
     </section>`)
     .join('');
 }
@@ -150,19 +181,34 @@ function fit() {
     const body = $('body');
     const foot = document.querySelector('.foot');
     if (!body || !foot) return;
-    const inner = body.firstElementChild;
-    const contentH = inner ? Math.ceil(inner.getBoundingClientRect().height) : 0;
-    const need = Math.min(contentH, 420) + Math.ceil(foot.getBoundingClientRect().height) + 26 + 48 + 8;
+    let contentH = 0;
+    for (const el of body.children) contentH += Math.ceil(el.getBoundingClientRect().height);
+    const prompt = $('folderPrompt');
+    const promptH = prompt && !prompt.classList.contains('hide') ? Math.ceil(prompt.getBoundingClientRect().height) : 0;
+    const need = Math.min(contentH, 420) + promptH + Math.ceil(foot.getBoundingClientRect().height) + 26 + 48 + 8;
     api.invoke('popup:fit', need);
   });
 }
+
+function contentKey() {
+  if (!state || !params) return '';
+  if (params.kind === 'archive') return (state.archiveItems || []).map((it) => it.path).join('\n');
+  const group = (state.items || []).find((i) => i.id === params.id);
+  return group ? (group.children || []).map((c) => `${c.id}:${c.path}`).join('\n') : '';
+}
+
+let fitKey = '';
 
 function render() {
   if (!state || !params) return;
   document.body.dataset.theme = state.appearance.theme || 'light';
   if (params.kind === 'archive') renderArchive();
   else renderGroup();
-  fit();
+  const key = contentKey();
+  if (key !== fitKey) {
+    fitKey = key;
+    fit();
+  }
 }
 
 /* ------------------------------ 事件 ------------------------------ */
@@ -187,11 +233,72 @@ document.body.addEventListener('pointerdown', (e) => {
   if (e.target === document.body) close();
 });
 
+function patchArchive(part) {
+  return api.invoke('settings:patch', { archive: part });
+}
+
 $('btnKind').addEventListener('click', () => {
   if (!state || !params || params.kind !== 'archive') return;
   const on = !(state.archive && state.archive.groupByExt);
-  api.invoke('settings:patch', { archive: { groupByExt: on } });
+  patchArchive({ groupByExt: on });
 });
+
+$('viewSeg').addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-view]');
+  if (!btn || !state || !params || params.kind !== 'archive') return;
+  if ((state.archive && state.archive.view) === btn.dataset.view) return;
+  if (!state.archive && btn.dataset.view === 'icon') return;
+  patchArchive({ view: btn.dataset.view });
+});
+
+$('sortSeg').addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-sort]');
+  if (!btn || !state || !params || params.kind !== 'archive') return;
+  const cur = (state.archive && state.archive.sort) || 'off';
+  if (cur === btn.dataset.sort) return;
+  patchArchive({ sort: btn.dataset.sort });
+});
+
+$('btnRefresh').addEventListener('click', async () => {
+  $('btnRefresh').disabled = true;
+  await api.invoke('views:refresh');
+  $('btnRefresh').disabled = false;
+  toast('已重新读取');
+});
+
+function showFolderPrompt() {
+  const box = $('folderPrompt');
+  box.classList.remove('hide');
+  const input = $('folderName');
+  input.value = '';
+  input.focus();
+}
+
+function hideFolderPrompt() {
+  $('folderPrompt').classList.add('hide');
+  $('folderName').value = '';
+}
+
+async function createFolder() {
+  const name = $('folderName').value.trim();
+  if (!name) return;
+  const r = await api.invoke('archive:mkdir', name);
+  if (r && r.ok) {
+    hideFolderPrompt();
+    toast(`已创建「${r.name || name}」`);
+  } else {
+    toast((r && r.error) || '没能创建文件夹');
+  }
+}
+
+$('folderOk').addEventListener('click', createFolder);
+$('folderCancel').addEventListener('click', hideFolderPrompt);
+$('folderName').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); createFolder(); }
+  if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); hideFolderPrompt(); }
+});
+
+api.on('archive:nameFolder', showFolderPrompt);
 
 $('body').addEventListener('click', async (e) => {
   if (blockClick) { blockClick = false; return; }
@@ -213,9 +320,9 @@ $('body').addEventListener('click', async (e) => {
 });
 
 $('body').addEventListener('contextmenu', (e) => {
-  e.preventDefault();
   const cell = e.target.closest('.cell');
   if (!cell) return;
+  e.preventDefault();
   if (params.kind === 'group' && cell.dataset.child) {
     api.invoke('child:menu', { groupId: params.id, childId: cell.dataset.child });
     return;
@@ -223,8 +330,17 @@ $('body').addEventListener('contextmenu', (e) => {
   if (cell.dataset.path) api.invoke('file:menu', cell.dataset.path);
 });
 
+$('card').addEventListener('contextmenu', (e) => {
+  if (e.target.closest('.cell')) return;
+  if (!params || params.kind !== 'archive') return;
+  e.preventDefault();
+  api.invoke('archive:blankMenu');
+});
+
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && document.activeElement !== $('gname')) close();
+  if (e.key !== 'Escape' || document.activeElement === $('gname')) return;
+  if (!$('folderPrompt').classList.contains('hide')) { hideFolderPrompt(); return; }
+  close();
 });
 
 $('search').addEventListener('input', (e) => {
@@ -304,6 +420,11 @@ window.addEventListener('pointerup', async (e) => {
   if (params && params.kind === 'group') {
     await api.invoke('group:reorder', { groupId: params.id, ids });
   } else if (params && params.kind === 'archive') {
+    const sort = (state.archive && state.archive.sort) || 'off';
+    if (sort !== 'off') {
+      toast('先把自动排序关掉，才能手动排');
+      return;
+    }
     await api.invoke('archive:reorder', { paths: ids });
   }
 });

@@ -151,6 +151,66 @@ function uid() {
   return crypto.randomBytes(6).toString('hex');
 }
 
+/** 系统位置。不是磁盘上的快捷方式，所以不能删，只能关掉。 */
+const SYSTEM_ICONS = [
+  { sys: 'pc', name: '此电脑', target: 'shell:MyComputerFolder', shell: '::{20D04FE0-3AEA-1069-A2D8-08002B30309D}' },
+  { sys: 'recycle', name: '回收站', target: 'shell:RecycleBinFolder', shell: '::{645FF040-5081-101B-9F08-00AA002F954E}' },
+  { sys: 'control', name: '控制面板', target: 'shell:ControlPanelFolder', shell: '::{26EE0668-A00A-44D7-9371-BEB064C98683}' },
+];
+
+function systemDef(sys) {
+  return SYSTEM_ICONS.find((d) => d.sys === sys) || null;
+}
+
+function systemShell(it) {
+  const def = it && systemDef(it.sys);
+  return def ? def.shell : '';
+}
+
+/** 缺了就补回原处后面；一个都没有时放在最左边。已有的不改顺序，也不重新打开。 */
+function ensureSystemIcons() {
+  const s = store.get();
+  if (!Array.isArray(s.items)) s.items = [];
+  const have = new Set(s.items.filter((i) => i.kind === 'system' && i.sys).map((i) => i.sys));
+  const missing = SYSTEM_ICONS.filter((d) => !have.has(d.sys));
+  if (!missing.length) return false;
+  let at = 0;
+  for (let i = 0; i < s.items.length; i++) {
+    if (s.items[i].kind === 'system') at = i + 1;
+  }
+  const fresh = missing.map((d) => ({
+    id: 'sys-' + d.sys,
+    kind: 'system',
+    sys: d.sys,
+    name: d.name,
+    closed: false,
+  }));
+  s.items.splice(at, 0, ...fresh);
+  return true;
+}
+
+function launchSystem(sys) {
+  const def = systemDef(sys);
+  if (!def) return { ok: false, error: '未知的系统图标' };
+  try {
+    const { spawn } = require('child_process');
+    spawn('explorer.exe', [def.target], { detached: true, stdio: 'ignore' }).unref();
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+}
+
+function setSystemClosed(id, closed) {
+  const s = store.get();
+  const it = (s.items || []).find((i) => i.id === id && i.kind === 'system');
+  if (!it) return false;
+  it.closed = !!closed;
+  store.save(true);
+  broadcast();
+  return true;
+}
+
 function invalidateArchive() {
   archiveCache = null;
   archiveCacheAt = 0;
@@ -234,6 +294,29 @@ function healPaths() {
   return healed;
 }
 
+/** 收进文件夹之后，按实际落点改 Dock 路径，避免同名快捷方式被自愈指错 */
+function retargetMoved(details) {
+  if (!details || !details.length) return;
+  const map = new Map();
+  for (const d of details) {
+    if (d && d.from && d.to) map.set(String(d.from).toLowerCase(), d.to);
+  }
+  if (!map.size) return;
+  const s = store.get();
+  const fix = (o) => {
+    if (!o || !o.path) return;
+    const to = map.get(String(o.path).toLowerCase());
+    if (to) o.path = to;
+  };
+  for (const it of s.items || []) {
+    if (it.kind === 'app') fix(it);
+    if (it.kind === 'group') for (const c of it.children || []) fix(c);
+  }
+  if (Array.isArray(s.removedPaths)) {
+    s.removedPaths = s.removedPaths.map((p) => map.get(String(p).toLowerCase()) || p);
+  }
+}
+
 async function refreshInspect() {
   const paths = desktopEntries.filter((e) => e.isShortcut).map((e) => e.path);
   // 加上已被收纳/分组的路径（可能已不在桌面）
@@ -267,8 +350,18 @@ async function warmIcons(opts = {}) {
     need.push(sc.buildJob(p, entry, info));
   };
 
+  const pushSystem = (it) => {
+    const shell = systemShell(it);
+    if (!shell || seen.has(shell.toLowerCase())) return;
+    seen.add(shell.toLowerCase());
+    const fname = sc.cacheName(shell, 0);
+    if (fs.existsSync(path.join(sc.iconDir(), fname))) return;
+    need.push({ id: shell, key: shell, file: '', index: 0, alts: [], shell });
+  };
+
   for (const it of s.items || []) {
     if (it.kind === 'app' && it.path) push(it.path);
+    if (it.kind === 'system') pushSystem(it);
     if (it.kind === 'group') for (const c of it.children || []) push(c.path);
   }
   if (includeArchive) archiveList().forEach((e) => push(e.path));
@@ -292,6 +385,7 @@ function dockIconsMissing() {
   };
   for (const it of s.items || []) {
     if (it.kind === 'app' && missing(it.path)) return true;
+    if (it.kind === 'system' && missing(systemShell(it))) return true;
     if (it.kind === 'group') {
       for (const c of it.children || []) if (missing(c.path)) return true;
     }
@@ -388,14 +482,22 @@ function archiveList() {
     pushEntry(e, true);
   }
 
-  const saved = Array.isArray(s.archive.order) ? s.archive.order : [];
-  const rank = new Map(saved.map((p, i) => [String(p).toLowerCase(), i]));
-  list.sort((a, b) => {
-    const ra = rank.has(a.path.toLowerCase()) ? rank.get(a.path.toLowerCase()) : 1e9;
-    const rb = rank.has(b.path.toLowerCase()) ? rank.get(b.path.toLowerCase()) : 1e9;
-    if (ra !== rb) return ra - rb;
-    return a.name.localeCompare(b.name, 'zh-Hans-CN');
-  });
+  const byName = (a, b) => String(a.name).localeCompare(String(b.name), 'zh-Hans-CN');
+  const mode = (s.archive && s.archive.sort) || 'off';
+  if (mode === 'name') {
+    list.sort(byName);
+  } else if (mode === 'mtime') {
+    list.sort((a, b) => (b.mtime || 0) - (a.mtime || 0) || byName(a, b));
+  } else {
+    const saved = Array.isArray(s.archive.order) ? s.archive.order : [];
+    const rank = new Map(saved.map((p, i) => [String(p).toLowerCase(), i]));
+    list.sort((a, b) => {
+      const ra = rank.has(a.path.toLowerCase()) ? rank.get(a.path.toLowerCase()) : 1e9;
+      const rb = rank.has(b.path.toLowerCase()) ? rank.get(b.path.toLowerCase()) : 1e9;
+      if (ra !== rb) return ra - rb;
+      return byName(a, b);
+    });
+  }
   archiveCache = list;
   archiveCacheAt = Date.now();
   return list;
@@ -482,6 +584,18 @@ async function importGroupIcon(id, parent) {
 
 function serializeItem(it, archiveCount, checkExists = true) {
   const gone = (p) => (checkExists ? !fs.existsSync(p) : false);
+  if (it.kind === 'system') {
+    const def = systemDef(it.sys);
+    const shell = def ? def.shell : '';
+    return {
+      id: it.id,
+      kind: 'system',
+      sys: it.sys,
+      name: (def && def.name) || it.name,
+      closed: !!it.closed,
+      icon: shell ? iconUrl(shell) : '',
+    };
+  }
   if (it.kind === 'app') {
     return { id: it.id, kind: 'app', name: it.name, path: it.path, icon: iconUrl(it.path), missing: gone(it.path) };
   }
@@ -505,7 +619,12 @@ function buildState() {
   const archiveRaw = archiveList();
   const items = (s.items || []).map((it) => serializeItem(it, archiveRaw.length));
   const archive = archiveRaw.map((e) => ({ ...e, icon: iconUrl(e.path) }));
-  const shortcuts = (s.items || []).reduce((n, it) => n + (it.kind === 'app' ? 1 : it.kind === 'group' ? (it.children || []).length : 0), 0);
+  const shortcuts = (s.items || []).reduce((n, it) => {
+    if (it.kind === 'app') return n + 1;
+    if (it.kind === 'system' && !it.closed) return n + 1;
+    if (it.kind === 'group') return n + (it.children || []).length;
+    return n;
+  }, 0);
   const vd = vault.dirs();
   return {
     appearance: s.appearance,
@@ -2126,6 +2245,10 @@ function registerIpc() {
     const s = store.get();
     const it = s.items.find((i) => i.id === id);
     if (!it) return { ok: false };
+    if (it.kind === 'system') {
+      closePopup();
+      return launchSystem(it.sys);
+    }
     if (it.kind === 'app') {
       closePopup();
       return sc.launch(it.path);
@@ -2168,8 +2291,12 @@ function registerIpc() {
     const it = s.items.find((i) => i.id === id);
     if (!it) return false;
     const isApp = it.kind === 'app';
+    const isSystem = it.kind === 'system';
     const template = [];
-    if (isApp) template.push({ label: '打开', click: () => sc.launch(it.path) });
+    if (isSystem) {
+      template.push({ label: '打开', click: () => launchSystem(it.sys) });
+      template.push({ label: '关闭', click: () => setSystemClosed(it.id, true) });
+    } else if (isApp) template.push({ label: '打开', click: () => sc.launch(it.path) });
     else {
       template.push({
         label: '展开',
@@ -2198,7 +2325,7 @@ function registerIpc() {
     if (isApp) {
       template.push({ type: 'separator' });
       template.push({ label: '在资源管理器中显示', click: () => shell.showItemInFolder(it.path) });
-      template.push({ label: '从 Dock 移除', click: () => removeItem(it.id) });
+      template.push({ label: '从 Dock 移除', click: () => confirmRemove(it.id, dockWin) });
     }
     if (it.kind === 'archive') {
       template.push({ type: 'separator' });
@@ -2368,24 +2495,11 @@ function registerIpc() {
 
   ipcMain.handle('items:remove', (e, id) => removeItem(id));
 
-  ipcMain.handle('items:confirmRemove', async (e, id) => {
-    const s = store.get();
-    const it = s.items.find((i) => i.id === id);
-    if (!it || it.kind === 'archive') return false;
+  ipcMain.handle('items:setClosed', (e, { id, closed }) => setSystemClosed(id, closed));
+
+  ipcMain.handle('items:confirmRemove', (e, id) => {
     const parent = BrowserWindow.fromWebContents(e.sender) || undefined;
-    const box = (opts) => (parent ? dialog.showMessageBox(parent, opts) : dialog.showMessageBox(opts));
-    const r = await box({
-      type: 'question',
-      buttons: ['移出', '取消'],
-      defaultId: 0,
-      cancelId: 1,
-      noLink: true,
-      title: '移出 Dock',
-      message: `移出「${it.name || '这个图标'}」？`,
-      detail: '文件会留在快捷方式文件夹里，可以随时在「快捷方式」里重新打开。',
-    });
-    if (r.response !== 0) return false;
-    return removeItem(id);
+    return confirmRemove(id, parent);
   });
 
   ipcMain.handle('items:center', (e, id) => {
@@ -2408,7 +2522,7 @@ function registerIpc() {
   ipcMain.handle('items:pickGroup', (e, itemId) => {
     const s = store.get();
     const it = s.items.find((i) => i.id === itemId);
-    if (!it || it.kind === 'archive') return false;
+    if (!it || it.kind === 'archive' || it.kind === 'system') return false;
     const groups = s.items.filter((i) => i.kind === 'group' && i.id !== itemId);
     const template = groups.map((g) => ({
       label: g.name || '未命名',
@@ -2548,13 +2662,14 @@ function registerIpc() {
   /** 把桌面上的快捷方式收进 DeskGlow\快捷方式，桌面就干净了 */
   ipcMain.handle('vault:importShortcuts', async () => {
     const r = vault.importDesktopShortcuts();
+    retargetMoved(r.details);
     refreshDesktop();
     healPaths();
     await refreshInspect();
     await warmIcons();
     store.save(true);
     broadcast();
-    return r.moved;
+    return { moved: r.moved, failed: r.failed || [] };
   });
 
   ipcMain.handle('settings:patch', async (e, patch) => {
@@ -2577,8 +2692,13 @@ function registerIpc() {
     const keys = patch ? Object.keys(patch) : [];
     const onlyAppearance = keys.length === 1 && keys[0] === 'appearance';
     if (patch && patch.archive) {
-      refreshDesktop();
-      await warmIcons();
+      invalidateArchive();
+      const a = patch.archive;
+      const rules = 'extensions' in a || 'includeFolders' in a || 'includeOther' in a;
+      if (rules) {
+        refreshDesktop();
+        await warmIcons();
+      }
     }
     if (patch && patch.widgets) {
       applyWidgetSettings();
@@ -2691,9 +2811,22 @@ function registerIpc() {
       { label: '在资源管理器中显示', click: () => shell.showItemInFolder(p) },
       { type: 'separator' },
       { label: '复制路径', click: () => require('electron').clipboard.writeText(p) },
+      { type: 'separator' },
+      { label: '新建文件夹', click: () => askNewFolder() },
     ]);
     return true;
   });
+
+  ipcMain.handle('archive:blankMenu', () => {
+    popupMenu(popupWin, [
+      { label: '新建文件夹', click: () => askNewFolder() },
+    ]);
+    return true;
+  });
+
+  ipcMain.handle('archive:mkdir', (e, name) => createArchiveFolder(name));
+
+  ipcMain.handle('views:refresh', () => refreshViews());
 
   ipcMain.handle('dialog:pickFiles', async (e) => {
     const r = await dialog.showOpenDialog(panelWin || undefined, {
@@ -2713,23 +2846,149 @@ function registerIpc() {
   });
 }
 
-function removeItem(id) {
-  const s = store.get();
-  const idx = s.items.findIndex((i) => i.id === id);
-  if (idx < 0) return false;
-  const it = s.items[idx];
-  if (it.kind === 'archive') return false;
-  const hide = [];
-  if (it.kind === 'app' && it.path) hide.push(it.path);
-  if (it.kind === 'group') {
-    for (const c of it.children || []) if (c && c.path) hide.push(c.path);
-    clearGroupIconFile(it);
+function userDesktop() {
+  try {
+    const d = app.getPath('desktop');
+    if (d && fs.existsSync(d)) return d;
+  } catch (_) {}
+  return '';
+}
+
+/** 快捷方式离开 Dock 时，从所在文件夹挪回桌面。已经在桌面上的不动。程序文件不挪。 */
+function releaseShortcutToDesktop(filePath) {
+  const src = String(filePath || '');
+  if (!src || !fs.existsSync(src)) return { ok: true, path: src, moved: false };
+  const ext = path.extname(src).toLowerCase();
+  if (ext !== '.lnk' && ext !== '.url') return { ok: true, path: src, moved: false };
+  const desk = userDesktop();
+  if (!desk) return { ok: false, error: '找不到桌面文件夹' };
+  if (path.dirname(src).toLowerCase() === desk.toLowerCase()) return { ok: true, path: src, moved: false };
+  try {
+    const dest = vault.moveInto(desk, src);
+    return { ok: true, path: dest, moved: true };
+  } catch (e) {
+    return { ok: false, error: vault.explainMoveError(e) };
   }
-  if (hide.length) s.removedPaths = [...new Set([...(s.removedPaths || []), ...hide])];
-  s.items.splice(idx, 1);
+}
+
+function pathsOfItem(it) {
+  const paths = [];
+  if (!it) return paths;
+  if (it.kind === 'app' && it.path) paths.push(it.path);
+  if (it.kind === 'group') {
+    for (const c of it.children || []) if (c && c.path) paths.push(c.path);
+  }
+  return paths;
+}
+
+function takeOffDock(id) {
+  const s = store.get();
+  const it = (s.items || []).find((i) => i.id === id);
+  if (!it) return { ok: false, missing: true };
+  if (it.kind === 'archive' || it.kind === 'system') return { ok: false, blocked: true };
+  const paths = pathsOfItem(it);
+  const details = [];
+  for (const p of paths) {
+    const r = releaseShortcutToDesktop(p);
+    if (!r.ok) {
+      if (details.length) retargetMoved(details);
+      refreshDesktop();
+      store.save(true);
+      broadcast();
+      return { ok: false, error: r.error };
+    }
+    if (r.moved) details.push({ from: p, to: r.path });
+  }
+  if (details.length) retargetMoved(details);
+  const cur = store.get();
+  const item = (cur.items || []).find((i) => i.id === id);
+  if (!item) {
+    refreshDesktop();
+    store.save(true);
+    broadcast();
+    return { ok: true };
+  }
+  const hide = pathsOfItem(item);
+  if (item.kind === 'group') clearGroupIconFile(item);
+  const drop = new Set(paths.map((p) => String(p).toLowerCase()));
+  for (const d of details) drop.add(String(d.from).toLowerCase());
+  const keep = (cur.removedPaths || []).filter((p) => !drop.has(String(p).toLowerCase()));
+  cur.removedPaths = [...new Set([...keep, ...hide])];
+  const at = cur.items.findIndex((i) => i.id === id);
+  if (at >= 0) cur.items.splice(at, 1);
+  refreshDesktop();
+  invalidateArchive();
   store.save(true);
   broadcast();
-  return true;
+  return { ok: true };
+}
+
+function removeItem(id) {
+  return !!takeOffDock(id).ok;
+}
+
+async function confirmRemove(id, parent) {
+  const s = store.get();
+  const it = (s.items || []).find((i) => i.id === id);
+  if (!it || it.kind === 'archive' || it.kind === 'system') return false;
+  const box = (opts) => (parent && !parent.isDestroyed() ? dialog.showMessageBox(parent, opts) : dialog.showMessageBox(opts));
+  const r = await box({
+    type: 'question',
+    buttons: ['移出', '取消'],
+    defaultId: 0,
+    cancelId: 1,
+    noLink: true,
+    title: '移出 Dock',
+    message: `把「${it.name || '这个图标'}」移出 Dock？`,
+    detail: '快捷方式会从文件夹挪到桌面，Dock 上不再显示。之后可以在「未显示」里重新打开。',
+  });
+  if (r.response !== 0) return false;
+  const done = takeOffDock(id);
+  if (done.ok) return true;
+  if (done.error) {
+    await box({
+      type: 'warning',
+      buttons: ['知道了'],
+      noLink: true,
+      title: '没能挪到桌面',
+      message: '快捷方式还在原来的文件夹里',
+      detail: done.error,
+    });
+  }
+  return false;
+}
+
+async function refreshViews() {
+  refreshDesktop();
+  const healed = healPaths();
+  invalidateArchive();
+  if (healed) store.save(true);
+  try { await warmIcons(); } catch (_) {}
+  broadcast();
+  return { ok: true, healed };
+}
+
+function askNewFolder() {
+  const win = popupWin && !popupWin.isDestroyed() ? popupWin : null;
+  if (win) win.webContents.send('archive:nameFolder');
+}
+
+function createArchiveFolder(name) {
+  const clean = String(name || '').trim().replace(/[\\/:*?"<>|]/g, '').replace(/[. ]+$/g, '');
+  if (!clean || clean === '.' || clean === '..') return { ok: false, error: '请换一个文件夹名' };
+  const dir = vault.dirs().archive;
+  vault.ensure();
+  let dest = '';
+  try {
+    dest = vault.uniquePath(dir, clean);
+    fs.mkdirSync(dest);
+  } catch (e) {
+    return { ok: false, error: vault.explainMoveError(e) };
+  }
+  invalidateArchive();
+  refreshDesktop();
+  broadcast();
+  return { ok: true, path: dest, name: path.basename(dest) };
 }
 
 /* ------------------------------------------------------------------ */
@@ -2908,6 +3167,7 @@ if (!gotLock) {
       refreshDesktop();
       bootstrapItems();
     }
+    if (ensureSystemIcons()) store.save(true);
     // 系统刚起来时，缩放和任务栏占位还会变，这时创建的透明窗口会少一半。
     // 开机超过一分半再空等，只会拖慢之后每次打开。
     if (uptime < EARLY_BOOT_SEC) await waitForStableDisplay();

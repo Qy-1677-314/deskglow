@@ -242,8 +242,9 @@ html, body {
 .foot {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 8px 12px;
   padding: 6px 14px 12px;
 }
 
@@ -286,21 +287,99 @@ html, body {
 }
 .gname:empty { display: none; }
 
-.mode {
+.gname[contenteditable='true'] { color: var(--text); }
+
+.tools {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
   flex: none;
+  margin-left: auto;
+}
+.seg {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 10px;
+  border: 1px solid rgba(108, 92, 231, 0.38);
+  background: rgba(108, 92, 231, 0.10);
+}
+.seg.hide, .chip.hide { display: none; }
+.seg button, .chip, .prompt button {
   border: none;
   background: transparent;
-  color: var(--sub);
-  font-size: 11px;
+  color: var(--text);
   font-family: inherit;
-  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1;
+  padding: 6px 9px;
   border-radius: 8px;
   cursor: pointer;
 }
-.mode:hover { background: var(--hover); color: var(--text); }
-.mode.on { color: var(--accent); background: var(--hover); }
-.mode.hide { display: none; }
-.gname[contenteditable='true'] { color: var(--text); }
+.seg button:hover, .chip:hover, .prompt button:hover { background: rgba(108, 92, 231, 0.16); }
+.seg button.on {
+  background: var(--accent);
+  color: #fff;
+}
+.chip {
+  border: 1px solid rgba(108, 92, 231, 0.5);
+  background: rgba(108, 92, 231, 0.14);
+  color: var(--accent);
+}
+.chip.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.grid.tiles { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px; }
+.cell.tile {
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 8px 10px;
+  text-align: left;
+}
+.cell.tile .nm {
+  text-align: left;
+  max-width: none;
+  -webkit-line-clamp: 1;
+}
+.cell.tile .meta { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.prompt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 14px 0;
+}
+.prompt.hide { display: none; }
+.prompt input {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid rgba(108, 92, 231, 0.4);
+  background: rgba(108, 92, 231, 0.06);
+  color: var(--text);
+  padding: 0 10px;
+  font-family: inherit;
+  font-size: 12.5px;
+  outline: none;
+}
+.prompt button {
+  flex: none;
+  border: 1px solid rgba(108, 92, 231, 0.4);
+  background: rgba(108, 92, 231, 0.12);
+  color: var(--accent);
+}
+.prompt button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
 
 .count {
   flex: none;

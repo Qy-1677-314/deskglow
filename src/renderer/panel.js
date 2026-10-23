@@ -52,8 +52,8 @@ const PAGE_META = {
   shortcuts: { t: '快捷方式', d: '调整图标顺序，决定哪些出现在 Dock', actions: '<button class="btn" id="aOpenFolder">打开文件夹</button><button class="btn" id="aTidy">收进文件夹</button><button class="btn" id="aScan">扫描桌面</button><button class="btn primary" id="aAdd">添加…</button>' },
   appearance: { t: '外观', d: '按图标、底板、位置分开调，预览会马上跟着变' },
   widgets: { t: '小组件', d: '时钟、日期、电量、文本、图片，摆在桌面任意位置' },
-  groups: { t: '分组', d: '把同类图标收在一起', actions: '<button class="btn" id="aCollapseAll">解散全部</button>' },
-  archive: { t: '文件', d: '桌面文件的统一入口' },
+  groups: { t: '分组', d: '把同类图标收在一起', actions: '<button class="btn" id="aRefreshGroups">刷新</button><button class="btn" id="aCollapseAll">解散全部</button>' },
+  archive: { t: '文件', d: '桌面文件的统一入口', actions: '<button class="btn" id="aRefreshFiles">刷新</button>' },
   about: { t: '关于', d: '版本与数据' },
 };
 
@@ -69,6 +69,16 @@ function go(page) {
   wirePageActions();
   $('#content').scrollTop = 0;
   renderPage(page);
+}
+
+async function refreshPage(btn) {
+  btn.disabled = true;
+  const old = btn.textContent;
+  btn.textContent = '读取中…';
+  await api.invoke('views:refresh');
+  btn.disabled = false;
+  btn.textContent = old;
+  toast('已按文件夹重新读取');
 }
 
 function wirePageActions() {
@@ -99,11 +109,20 @@ function wirePageActions() {
     btn.disabled = true;
     const old = btn.textContent;
     btn.textContent = '整理中…';
-    const n = await api.invoke('vault:importShortcuts');
+    const r = await api.invoke('vault:importShortcuts');
     btn.disabled = false;
     btn.textContent = old;
-    toast(n ? `已移入文件夹 ${n} 个，文件都还在` : '桌面上没有要移动的快捷方式');
+    const n = typeof r === 'number' ? r : (r && r.moved) || 0;
+    const failed = (r && r.failed) || [];
+    if (n && !failed.length) toast(`已移入文件夹 ${n} 个，文件都还在`);
+    else if (n) toast(`已移入 ${n} 个，${failed[0].name} 没移走：${failed[0].error}`, 'err');
+    else if (failed.length) toast(`${failed[0].name} 没能放进文件夹：${failed[0].error}`, 'err');
+    else toast('桌面上没有要移动的快捷方式');
   };
+  const refreshGroups = $('#aRefreshGroups');
+  if (refreshGroups) refreshGroups.onclick = () => refreshPage(refreshGroups);
+  const refreshFiles = $('#aRefreshFiles');
+  if (refreshFiles) refreshFiles.onclick = () => refreshPage(refreshFiles);
   const collapse = $('#aCollapseAll');
   if (collapse) collapse.onclick = async () => {
     for (const g of (state.items || []).filter((i) => i.kind === 'group')) {
@@ -154,7 +173,7 @@ function renderPage(page) {
 function viewFingerprint(s) {
   if (!s) return '';
   const items = (s.items || []).map((i) => [
-    i.id, i.kind, i.name, i.count, i.missing ? 1 : 0,
+    i.id, i.kind, i.name, i.count, i.closed ? 1 : 0, i.missing ? 1 : 0,
     i.kind === 'group' ? `${i.icon || '-'}/${(i.iconSrc || '').length}` : (i.icon || '').length,
     (i.preview || []).join(',').length,
     (i.children || []).map((c) => `${c.id}:${c.path}:${(c.icon || '').length}`).join(','),
@@ -167,6 +186,10 @@ function viewFingerprint(s) {
     (a.extensions || []).join(','),
     a.includeFolders ? 1 : 0,
     a.includeOther ? 1 : 0,
+    a.groupByExt ? 1 : 0,
+    a.view || 'icon',
+    a.sort || 'off',
+    (s.archiveItems || []).map((i) => `${i.path}:${i.mtime || 0}`).join(','),
     st.archiveCount,
     v.desktopFiles,
     v.desktopShortcuts,
@@ -229,7 +252,17 @@ function renderShortcuts() {
   const rows = [];
 
   items.forEach((it, idx) => {
-    if (it.kind === 'app') {
+    if (it.kind === 'system') {
+      rows.push(`<div class="row" data-id="${it.id}" data-kind="system">
+        ${iconHTML(it)}
+        <div class="info"><div class="name">${esc(it.name)}</div><div class="path">默认图标，不能删除</div></div>
+        ${dockSwitch(!it.closed)}
+        <div class="actions">
+          ${orderButtons(idx, movable)}
+          <button class="icon-action" data-act="open">打开</button>
+        </div>
+      </div>`);
+    } else if (it.kind === 'app') {
       rows.push(`<div class="row" data-id="${it.id}" data-kind="app" data-path="${esc(it.path)}">
         ${iconHTML(it)}
         <div class="info"><div class="name">${esc(it.name)}</div><div class="path">${esc(it.path)}</div></div>
@@ -237,7 +270,7 @@ function renderShortcuts() {
         <div class="actions">
           ${orderButtons(idx, movable)}
           <button class="icon-action" data-act="group" title="移入分组">${SVG.folder}</button>
-          <button class="icon-action danger" data-act="remove" title="从 Dock 移出">${SVG.trash}</button>
+          <button class="icon-action danger" data-act="remove" title="挪到桌面，并从 Dock 移出">${SVG.trash}</button>
         </div>
       </div>`);
     } else if (it.kind === 'group') {
@@ -464,7 +497,7 @@ function previewIconFilter(a) {
 /* 与 dock.js 的 computeLayout 保持同一套算式，用于「塞进一行」 */
 function layoutInfo(a) {
   const items = state.items || [];
-  const nApps = items.filter((i) => i.kind !== 'archive').length;
+  const nApps = items.filter((i) => i.kind !== 'archive' && !(i.kind === 'system' && i.closed)).length;
   const hasArchive = items.some((i) => i.kind === 'archive');
   const total = nApps + (hasArchive ? 1 : 0);
   return { nApps, hasArchive, total, gap: a.gap, maxW: Math.max(380, Math.round(screen.availWidth * 0.94) - 48) };
@@ -1099,6 +1132,11 @@ function bindEvents() {
     if (!input) return;
     const row = input.closest('.row');
     if (!row) return;
+    if (row.dataset.kind === 'system') {
+      const ok = await api.invoke('items:setClosed', { id: row.dataset.id, closed: !input.checked });
+      if (!ok) input.checked = !input.checked;
+      return;
+    }
     if (input.checked) return;
     const ok = await api.invoke('items:confirmRemove', row.dataset.id);
     if (!ok) input.checked = true;
@@ -1124,6 +1162,10 @@ function bindEvents() {
     if (act === 'center') await api.invoke('items:center', id);
     if (act === 'down' && idx < state.items.length - 1) {
       await api.invoke('items:move', { id, targetId: state.items[idx + 1].id, after: true });
+    }
+    if (act === 'open') {
+      await api.invoke('dock:open', id);
+      return;
     }
     if (act === 'remove') {
       const ok = await api.invoke('items:confirmRemove', id);

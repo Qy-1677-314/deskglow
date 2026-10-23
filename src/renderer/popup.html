@@ -15,6 +15,11 @@
         </svg>
       </button>
       <div class="body" id="body"></div>
+      <div class="prompt hide" id="folderPrompt">
+        <input id="folderName" placeholder="文件夹名称" maxlength="80" />
+        <button type="button" class="primary" id="folderOk">创建</button>
+        <button type="button" id="folderCancel">取消</button>
+      </div>
       <div class="foot">
         <div class="search" id="searchWrap">
           <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
@@ -22,8 +27,20 @@
           </svg>
           <input id="search" placeholder="搜索…" />
         </div>
-        <button type="button" class="mode hide" id="btnKind" title="按文件格式分组">分类</button>
         <div class="gname" id="gname"></div>
+        <div class="tools">
+          <div class="seg hide" id="viewSeg" title="显示方式">
+            <button type="button" data-view="icon">图标</button>
+            <button type="button" data-view="tile">平铺</button>
+          </div>
+          <button type="button" class="chip hide" id="btnKind" title="按文件格式分组">分类</button>
+          <div class="seg hide" id="sortSeg" title="自动排序，可以关掉">
+            <button type="button" data-sort="off">关</button>
+            <button type="button" data-sort="name">名称</button>
+            <button type="button" data-sort="mtime">时间</button>
+          </div>
+          <button type="button" class="chip" id="btnRefresh" title="按文件夹重新读取">刷新</button>
+        </div>
         <div class="count" id="count"></div>
       </div>
       <div class="drop-mask" id="dropMask">
