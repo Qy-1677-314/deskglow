@@ -6,6 +6,8 @@ const $ = (id) => document.getElementById(id);
 let params = null;
 let state = null;
 let query = '';
+let browse = [];
+let opening = false;
 
 const esc = (s) =>
   String(s || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -106,8 +108,10 @@ function fileCell(it, tile) {
   const ext = it.isDir ? '文件夹' : (it.ext || '').replace('.', '').toUpperCase();
   const when = fileTime(it.mtime);
   const sub = when ? `${ext} · ${when}` : ext;
+  const dir = it.isDir ? ' data-dir="1"' : '';
+  const title = it.isDir ? '打开' : '拖动排序';
   if (tile) {
-    return `<div class="cell tile" data-path="${esc(it.path)}" data-cat="${fileKind(it)}" title="拖动排序">
+    return `<div class="cell tile" data-path="${esc(it.path)}" data-cat="${fileKind(it)}"${dir} title="${title}">
       ${iconOrFallback(it)}
       <div class="meta">
         <div class="nm" title="${esc(it.name)}">${esc(baseName(it.name, it.isDir ? '' : it.ext))}</div>
@@ -115,7 +119,7 @@ function fileCell(it, tile) {
       </div>
     </div>`;
   }
-  return `<div class="cell" data-path="${esc(it.path)}" data-cat="${fileKind(it)}" title="拖动排序">
+  return `<div class="cell" data-path="${esc(it.path)}" data-cat="${fileKind(it)}"${dir} title="${title}">
     ${iconOrFallback(it)}
     <div class="nm" title="${esc(it.name)}">${esc(baseName(it.name, it.isDir ? '' : it.ext))}</div>
     <div class="ext">${esc(ext)}</div>
@@ -129,8 +133,74 @@ function showArchiveTools(on) {
 }
 
 /* ------------------------------ 文件收纳 ------------------------------ */
+function currentFolder() {
+  return browse.length ? browse[browse.length - 1] : null;
+}
+
+function sortedBrowse(list) {
+  const mode = (state.archive && state.archive.sort) || 'off';
+  const arr = list.slice();
+  const byName = (a, b) => String(a.name).localeCompare(String(b.name), 'zh-Hans-CN');
+  if (mode === 'name') arr.sort(byName);
+  else if (mode === 'mtime') arr.sort((a, b) => (b.mtime || 0) - (a.mtime || 0) || byName(a, b));
+  return arr;
+}
+
+function crumbBar() {
+  const cur = currentFolder();
+  if (!cur) return '';
+  return `<div class="crumbbar"><button type="button" class="back" data-up="1">返回</button><span>${esc(cur.name)}</span></div>`;
+}
+
+async function enterDir(dir, name) {
+  if (!dir || opening) return;
+  opening = true;
+  const r = await api.invoke('archive:readDir', dir);
+  opening = false;
+  if (!r || !r.ok) {
+    toast((r && r.error) || '打不开这个文件夹');
+    return;
+  }
+  const top = currentFolder();
+  const same = top && top.path.toLowerCase() === String(r.path).toLowerCase();
+  if (same) {
+    top.items = r.items || [];
+    if (name) top.name = name;
+  } else {
+    browse.push({ path: r.path, name: name || r.path, items: r.items || [] });
+  }
+  query = '';
+  if ($('search')) $('search').value = '';
+  render();
+  if ($('body')) $('body').scrollTop = 0;
+}
+
+function goUp() {
+  browse.pop();
+  query = '';
+  if ($('search')) $('search').value = '';
+  render();
+  if ($('body')) $('body').scrollTop = 0;
+}
+
+async function reloadBrowse() {
+  const top = currentFolder();
+  if (!top) return;
+  const r = await api.invoke('archive:readDir', top.path);
+  if (!r || !r.ok) {
+    toast((r && r.error) || '文件夹不在了');
+    browse.pop();
+    render();
+    return;
+  }
+  top.items = r.items || [];
+  top.path = r.path;
+  render();
+}
+
 function renderArchive() {
-  const all = state.archiveItems || [];
+  const inside = currentFolder();
+  const all = inside ? sortedBrowse(inside.items || []) : (state.archiveItems || []);
   const arc = state.archive || {};
   $('searchWrap').classList.remove('hide');
   $('gname').textContent = '';
@@ -146,19 +216,25 @@ function renderArchive() {
   let list = all;
   if (query.trim()) {
     const q = query.trim().toLowerCase();
-    list = list.filter((it) => it.name.toLowerCase().includes(q));
+    list = list.filter((it) => String(it.name || '').toLowerCase().includes(q));
   }
 
-  $('count').textContent = `${list.length} 个文件`;
+  $('count').textContent = inside ? `${list.length} 项` : `${list.length} 个文件`;
   const cell = (it) => fileCell(it, tile);
   const gridCls = tile ? 'grid tiles' : 'grid';
+  const bar = crumbBar();
 
   if (!list.length) {
-    $('body').innerHTML = `<div class="empty-state">${all.length ? '没有匹配的文件' : '桌面上暂时没有需要收纳的文件<br/>右键可以新建文件夹'}</div>`;
+    const empty = query.trim()
+      ? '没有匹配的文件'
+      : inside
+        ? '这个文件夹是空的<br/>右键可以新建文件夹'
+        : '桌面上暂时没有需要收纳的文件<br/>右键可以新建文件夹';
+    $('body').innerHTML = `${bar}<div class="empty-state">${empty}</div>`;
     return;
   }
   if (!grouped) {
-    $('body').innerHTML = `<div class="${gridCls}">${list.map(cell).join('')}</div>`;
+    $('body').innerHTML = `${bar}<div class="${gridCls}">${list.map(cell).join('')}</div>`;
     return;
   }
   const buckets = new Map();
@@ -167,7 +243,7 @@ function renderArchive() {
     if (!buckets.has(k)) buckets.set(k, []);
     buckets.get(k).push(it);
   }
-  $('body').innerHTML = KINDS.filter(([id]) => buckets.has(id))
+  $('body').innerHTML = bar + KINDS.filter(([id]) => buckets.has(id))
     .map(([id, name]) => `<section class="sec" data-cat="${id}">
       <div class="sec-h">${name}</div>
       <div class="${gridCls}">${buckets.get(id).map(cell).join('')}</div>
@@ -262,6 +338,7 @@ $('sortSeg').addEventListener('click', (e) => {
 $('btnRefresh').addEventListener('click', async () => {
   $('btnRefresh').disabled = true;
   await api.invoke('views:refresh');
+  if (browse.length) await reloadBrowse();
   $('btnRefresh').disabled = false;
   toast('已重新读取');
 });
@@ -282,10 +359,12 @@ function hideFolderPrompt() {
 async function createFolder() {
   const name = $('folderName').value.trim();
   if (!name) return;
-  const r = await api.invoke('archive:mkdir', name);
+  const dir = currentFolder() ? currentFolder().path : '';
+  const r = await api.invoke('archive:mkdir', dir ? { name, dir } : name);
   if (r && r.ok) {
     hideFolderPrompt();
     toast(`已创建「${r.name || name}」`);
+    if (browse.length) await reloadBrowse();
   } else {
     toast((r && r.error) || '没能创建文件夹');
   }
@@ -299,8 +378,16 @@ $('folderName').addEventListener('keydown', (e) => {
 });
 
 api.on('archive:nameFolder', showFolderPrompt);
+api.on('archive:enter', (info) => {
+  if (!info || !info.path || !params || params.kind !== 'archive') return;
+  enterDir(info.path, info.name);
+});
 
 $('body').addEventListener('click', async (e) => {
+  if (e.target.closest('[data-up]')) {
+    goUp();
+    return;
+  }
   if (blockClick) { blockClick = false; return; }
   const cell = e.target.closest('.cell');
   if (!cell) return;
@@ -311,6 +398,11 @@ $('body').addEventListener('click', async (e) => {
       api.invoke('item:launch', child.path);
       close();
     }
+    return;
+  }
+  if (cell.dataset.dir === '1') {
+    const nm = cell.querySelector('.nm');
+    enterDir(cell.dataset.path, nm ? nm.textContent : '');
     return;
   }
   if (cell.dataset.path) {
@@ -340,6 +432,7 @@ $('card').addEventListener('contextmenu', (e) => {
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape' || document.activeElement === $('gname')) return;
   if (!$('folderPrompt').classList.contains('hide')) { hideFolderPrompt(); return; }
+  if (browse.length && params && params.kind === 'archive') { goUp(); return; }
   close();
 });
 
@@ -425,6 +518,15 @@ window.addEventListener('pointerup', async (e) => {
       toast('先把自动排序关掉，才能手动排');
       return;
     }
+    const top = currentFolder();
+    if (top) {
+      const map = new Map((top.items || []).map((it) => [it.path, it]));
+      const next = ids.map((id) => map.get(id)).filter(Boolean);
+      for (const it of top.items || []) if (!next.includes(it)) next.push(it);
+      top.items = next;
+      render();
+      return;
+    }
     await api.invoke('archive:reorder', { paths: ids });
   }
 });
@@ -472,9 +574,11 @@ document.addEventListener('drop', async (e) => {
   if (!params || params.kind !== 'archive') return;
   const paths = pathsFromDrop(e.dataTransfer);
   if (!paths.length) return;
-  const r = await api.invoke('archive:addFiles', paths);
-  if (r && r.moved) toast(`已收纳 ${r.moved} 个文件`);
-  else toast('这些文件已经在收纳夹里了');
+  const dir = currentFolder() ? currentFolder().path : '';
+  const r = await api.invoke('archive:addFiles', dir ? { paths, dir } : paths);
+  if (browse.length) await reloadBrowse();
+  if (r && r.moved) toast(dir ? `已放进这个文件夹 ${r.moved} 个` : `已收纳 ${r.moved} 个文件`);
+  else toast(dir ? '没有可放进来的文件' : '这些文件已经在收纳夹里了');
 });
 
 /* ------------------------------ 启动 ------------------------------ */

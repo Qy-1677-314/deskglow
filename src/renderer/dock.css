@@ -68,19 +68,19 @@ html, body {
 }
 
 /* ---------------- 玻璃条 ---------------- */
+/* 毛玻璃、圆角、描边放在 .bar-fill 上，不放在 .bar 上。
+   带 backdrop-filter 的圆角盒子会把子元素（图标投影）切成一条硬边。 */
 .bar {
   position: relative;
+  z-index: 0;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
   padding: var(--pad-y) var(--pad-x);
-  border-radius: var(--radius);
-  background: linear-gradient(168deg, var(--bar-top), var(--bar-bottom));
-  border: 1px solid var(--bar-border);
-  box-shadow: var(--shadow);
-  backdrop-filter: blur(var(--blur)) saturate(190%);
-  -webkit-backdrop-filter: blur(var(--blur)) saturate(190%);
+  background: transparent;
+  border: none;
+  box-shadow: none;
   /* 不要过渡 width / background。毛玻璃层在 Windows 上跟着动画改尺寸时，
      会把背后的壁纸一块一块闪出来。图标自己的放大动画不受影响。 */
   transition: transform 0.42s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.3s ease;
@@ -88,12 +88,25 @@ html, body {
   max-width: none;
 }
 
-body[data-theme='dark'] .bar {
+.bar-fill {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: var(--radius);
+  background: linear-gradient(168deg, var(--bar-top), var(--bar-bottom));
+  border: 1px solid var(--bar-border);
   box-shadow: var(--shadow);
+  backdrop-filter: blur(var(--blur)) saturate(190%);
+  -webkit-backdrop-filter: blur(var(--blur)) saturate(190%);
+  pointer-events: none;
 }
 
-/* 关闭玻璃底板：只剩图标 */
-body[data-glass='false'] .bar {
+.items-wrap,
+.pinned { position: relative; z-index: 1; }
+
+/* 关闭玻璃底板，或背景透明度是 0：只剩图标，不留一圈切割线 */
+body[data-glass='false'] .bar-fill,
+body[data-fill='off'] .bar-fill {
   background: transparent;
   border-color: transparent;
   box-shadow: none;
@@ -108,26 +121,28 @@ body[data-collapsed='true'] .bar-glow,
 body[data-collapsed='true'] .bar-shade { display: none; }
 body[data-glass='false'] .fade { display: none; }
 
-/* 外投影：渐变在元素内部就淡到 0，窗口边切到的是空白，不会留下硬边黑带。
+/* 外投影：最浓的一段藏在底板后面，露出的部分在到达窗口边之前就淡到 0。
+   左右收进圆角里，并按圆角宽度柔化两端，避免投影是一块方角。
    不用 filter:blur，透明窗口上的模糊层会不规则闪烁。 */
 .bar-shade {
   position: absolute;
-  left: 0;
-  right: 0;
-  top: calc(100% - 10px + var(--shade-shift));
-  height: calc(var(--shpad) + 10px);
+  left: var(--shade-inset, 14px);
+  right: var(--shade-inset, 14px);
+  top: calc(100% - var(--shade-hide, 16px));
+  height: calc(var(--shade-hide, 16px) + var(--shade-reach, 28px));
   pointer-events: none;
   z-index: -1;
-  /* 纵向在盒子底边淡到 0；横向只柔化两端，长 Dock 不会中间一块、两边没影 */
+  border-radius: 0 0 calc(var(--shade-reach, 28px) * 0.55) calc(var(--shade-reach, 28px) * 0.55);
   background: linear-gradient(
     to bottom,
     rgba(var(--shade-rgb), var(--shade-a)) 0%,
-    rgba(var(--shade-rgb), calc(var(--shade-a) * 0.40)) 34%,
-    rgba(var(--shade-rgb), calc(var(--shade-a) * 0.10)) 64%,
+    rgba(var(--shade-rgb), calc(var(--shade-a) * 0.42)) 34%,
+    rgba(var(--shade-rgb), calc(var(--shade-a) * 0.12)) 66%,
+    transparent 88%,
     transparent 100%
   );
-  -webkit-mask-image: linear-gradient(to right, transparent 0%, #000 7%, #000 93%, transparent 100%);
-  mask-image: linear-gradient(to right, transparent 0%, #000 7%, #000 93%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 var(--shade-fade, 22px), #000 calc(100% - var(--shade-fade, 22px)), transparent 100%);
+  mask-image: linear-gradient(to right, transparent 0, #000 var(--shade-fade, 22px), #000 calc(100% - var(--shade-fade, 22px)), transparent 100%);
 }
 
 /* 这层以前是写死的青紫光。它不读投影颜色，黑投影也会被染成淡蓝，所以关掉。 */
@@ -185,7 +200,6 @@ body[data-layout='wrap'] .items {
   position: relative;
   width: calc(var(--icon) + 12px);
   height: calc(var(--icon) + 12px);
-  border-radius: 15px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -210,6 +224,18 @@ body[data-layout='wrap'] .items {
   pointer-events: none;
 }
 
+/* 投影画在这一层。图标、文件夹自己常带 overflow:hidden 和圆角，
+   滤镜若画在它们身上，晕开会被切成方块。 */
+.face {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  filter: var(--icon-filter);
+  overflow: visible;
+  transition: filter 0.25s ease;
+}
+.item.missing .face { filter: grayscale(1) opacity(0.45); }
+
 .glyph::after {
   content: '';
   position: absolute;
@@ -232,11 +258,7 @@ body[data-hoverbg='true'] .item:hover .glyph::after { opacity: 1; }
   height: var(--icon);
   object-fit: contain;
   pointer-events: none;
-  filter: var(--icon-filter);
-  transition: filter 0.25s ease;
 }
-
-.item.missing .icon { filter: grayscale(1) opacity(0.45); }
 
 /* 无图标兜底 */
 .fallback {
@@ -250,7 +272,6 @@ body[data-hoverbg='true'] .item:hover .glyph::after { opacity: 1; }
   font-size: calc(var(--icon) * 0.38);
   font-weight: 600;
   background: linear-gradient(150deg, #7c6bff, #22d3ee);
-  filter: var(--icon-filter);
   pointer-events: none;
 }
 
@@ -266,7 +287,6 @@ body[data-hoverbg='true'] .item:hover .glyph::after { opacity: 1; }
   gap: 3px;
   background: linear-gradient(160deg, rgba(255, 255, 255, 0.66), rgba(255, 255, 255, 0.30));
   border: 1px solid rgba(255, 255, 255, 0.55);
-  filter: var(--icon-filter);
   pointer-events: none;
 }
 
@@ -306,7 +326,6 @@ body[data-theme='dark'] .folder {
   align-items: center;
   justify-content: center;
   color: #fff;
-  filter: var(--icon-filter);
   pointer-events: none;
   overflow: hidden;
 }
@@ -347,7 +366,7 @@ body[data-theme='dark'] .folder {
 body:not([data-labels='true']) .tip { display: none; }
 
 /* 拖入文件时的高亮 */
-body.drop-file .bar {
+body.drop-file .bar-fill {
   box-shadow: 0 0 0 2px var(--accent), var(--shadow);
 }
 body.drop-file .items::after {
@@ -364,9 +383,13 @@ body.drop-file .items::after {
 body[data-collapsed='true'] .bar {
   transform: translateY(calc(100% + var(--shpad, 10px) - 11px));
   opacity: 1;
+}
+body[data-collapsed='true'] .bar-fill {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(244, 246, 252, 0.92));
   border-color: rgba(20, 24, 56, 0.10);
   box-shadow: 0 -3px 12px rgba(20, 24, 56, 0.12);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 /* 空状态 */

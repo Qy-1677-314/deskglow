@@ -8,7 +8,7 @@
 </head>
 <body>
   <svg width="0" height="0" aria-hidden="true" style="position:absolute">
-    <filter id="iconFx" x="-80%" y="-90%" width="260%" height="280%" color-interpolation-filters="sRGB">
+    <filter id="iconFx" filterUnits="userSpaceOnUse" x="-180" y="-180" width="560" height="560" color-interpolation-filters="sRGB">
       <feMorphology id="strokeMorph" in="SourceAlpha" operator="dilate" radius="0" result="dilated"/>
       <feFlood id="strokeFlood" flood-color="#ffffff" flood-opacity="0" result="strokeColor"/>
       <feComposite in="strokeColor" in2="dilated" operator="in" result="stroke"/>
@@ -235,9 +235,10 @@
               <div class="preview" id="preview">
                 <div class="p-dock" id="pDock">
                   <div class="p-shade" id="pShade"></div>
-                  <div class="p-item"></div><div class="p-item g"></div><div class="p-item"></div>
-                  <div class="p-item"></div><div class="p-item g"></div><div class="p-item"></div>
-                  <div class="p-item a"></div>
+                  <div class="p-fill" id="pFill"></div>
+                  <div class="p-item"><i></i></div><div class="p-item g"><i></i></div><div class="p-item"><i></i></div>
+                  <div class="p-item"><i></i></div><div class="p-item g"><i></i></div><div class="p-item"><i></i></div>
+                  <div class="p-item a"><i></i></div>
                 </div>
               </div>
             </div>

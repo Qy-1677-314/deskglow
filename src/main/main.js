@@ -1560,8 +1560,9 @@ async function refreshBattery() {
       };
     }
   } catch (_) { /* 读不到就按没有电池处理 */ }
-  // 电源状态以系统事件为准，比 Win32_Battery 的状态码可靠
+  // 是否接通电源以系统事件为准。拔掉电源后即使脚本还报着充电，闪电也马上收掉。
   try { next.ac = !powerMonitor.isOnBatteryPower(); } catch (_) { /* ignore */ }
+  if (!next.ac) next.charging = false;
   batteryBusy = false;
   batteryState = next;
   broadcastBattery();
@@ -2603,6 +2604,8 @@ function registerIpc() {
 
   ipcMain.handle('archive:list', () => archiveList().map((e) => ({ ...e, icon: iconUrl(e.path) })));
 
+  ipcMain.handle('archive:readDir', (e, dir) => readArchiveDir(dir));
+
   ipcMain.handle('archive:reorder', (e, { paths }) => {
     if (!Array.isArray(paths) || !paths.length) return false;
     const s = store.get();
@@ -2619,10 +2622,17 @@ function registerIpc() {
     return true;
   });
 
-  /** 把文件移动进 DeskGlow\文件收纳（拖进「文件合集」= 放进软件文件夹） */
-  ipcMain.handle('archive:addFiles', async (e, paths) => {
-    const dir = vault.dirs().archive;
+  /** 把文件移动进当前文件夹。没指定时放进 DeskGlow\文件收纳。 */
+  ipcMain.handle('archive:addFiles', async (e, payload) => {
+    const paths = Array.isArray(payload) ? payload : (payload && payload.paths) || [];
+    let dir = vault.dirs().archive;
+    if (payload && !Array.isArray(payload) && payload.dir) {
+      const picked = canBrowse(payload.dir);
+      if (!picked) return { moved: 0, skipped: paths, error: '不能放进这个文件夹' };
+      dir = picked;
+    }
     vault.ensure();
+    try { fs.mkdirSync(dir, { recursive: true }); } catch (_) {}
     let moved = 0;
     const skipped = [];
     for (const p of paths || []) {
@@ -2807,7 +2817,7 @@ function registerIpc() {
 
   ipcMain.handle('file:menu', (e, p) => {
     popupMenu(popupWin || dockWin, [
-      { label: '打开', click: () => sc.launch(p) },
+      { label: '打开', click: () => openCollected(p) },
       { label: '在资源管理器中显示', click: () => shell.showItemInFolder(p) },
       { type: 'separator' },
       { label: '复制路径', click: () => require('electron').clipboard.writeText(p) },
@@ -2824,7 +2834,10 @@ function registerIpc() {
     return true;
   });
 
-  ipcMain.handle('archive:mkdir', (e, name) => createArchiveFolder(name));
+  ipcMain.handle('archive:mkdir', (e, payload) => {
+    if (payload && typeof payload === 'object') return createArchiveFolder(payload.name, payload.dir);
+    return createArchiveFolder(payload);
+  });
 
   ipcMain.handle('views:refresh', () => refreshViews());
 
@@ -2973,14 +2986,81 @@ function askNewFolder() {
   if (win) win.webContents.send('archive:nameFolder');
 }
 
-function createArchiveFolder(name) {
+function pathInside(root, target) {
+  const r = path.resolve(root).toLowerCase();
+  const t = path.resolve(target).toLowerCase();
+  return t === r || t.startsWith(r + path.sep.toLowerCase());
+}
+
+/** 只允许看桌面和「文件收纳」里面的文件夹，避免跳到别的盘符。 */
+function canBrowse(dir) {
+  if (!dir) return '';
+  let full = '';
+  try { full = fs.realpathSync(path.resolve(String(dir))); } catch (_) { return ''; }
+  const roots = [];
+  try { roots.push(...sc.desktopDirs()); } catch (_) {}
+  try { roots.push(vault.dirs().archive); } catch (_) {}
+  for (const root of roots) {
+    let real = '';
+    try { real = fs.realpathSync(root); } catch (_) { continue; }
+    if (pathInside(real, full)) return full;
+  }
+  return '';
+}
+
+function openCollected(p) {
+  let isDir = false;
+  try { isDir = fs.statSync(p).isDirectory(); } catch (_) {}
+  if (isDir && popupWin && !popupWin.isDestroyed() && popupParams && popupParams.kind === 'archive') {
+    popupWin.webContents.send('archive:enter', { path: p, name: path.basename(p) });
+    return;
+  }
+  sc.launch(p);
+}
+
+async function readArchiveDir(dir) {
+  const full = canBrowse(dir);
+  if (!full) return { ok: false, error: '不能打开这个位置' };
+  let st;
+  try { st = fs.statSync(full); } catch (_) { return { ok: false, error: '文件夹不在了' }; }
+  if (!st.isDirectory()) return { ok: false, error: '这不是文件夹' };
+  const entries = vault.listDir(full);
+  const need = [];
+  for (const e of entries) {
+    if (sc.hasCached(e.path, 0)) continue;
+    need.push(sc.buildJob(e.path, { path: e.path }, null));
+  }
+  if (need.length) {
+    try { await sc.extractIcons(need); } catch (_) {}
+  }
+  return {
+    ok: true,
+    path: full,
+    items: entries.map((e) => ({
+      path: e.path,
+      name: e.name,
+      ext: e.ext,
+      isDir: !!e.isDir,
+      mtime: e.mtime,
+      icon: iconUrl(e.path) || '',
+    })),
+  };
+}
+
+function createArchiveFolder(name, dir) {
   const clean = String(name || '').trim().replace(/[\\/:*?"<>|]/g, '').replace(/[. ]+$/g, '');
   if (!clean || clean === '.' || clean === '..') return { ok: false, error: '请换一个文件夹名' };
-  const dir = vault.dirs().archive;
+  let base = vault.dirs().archive;
+  if (dir) {
+    const picked = canBrowse(dir);
+    if (!picked) return { ok: false, error: '不能在这里新建文件夹' };
+    base = picked;
+  }
   vault.ensure();
   let dest = '';
   try {
-    dest = vault.uniquePath(dir, clean);
+    fs.mkdirSync(base, { recursive: true });
+    dest = vault.uniquePath(base, clean);
     fs.mkdirSync(dest);
   } catch (e) {
     return { ok: false, error: vault.explainMoveError(e) };

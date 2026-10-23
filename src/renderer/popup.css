@@ -230,6 +230,36 @@ html, body {
   white-space: nowrap;
 }
 
+.crumbbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 6px 8px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 650;
+}
+.crumbbar span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.crumbbar .back {
+  flex: none;
+  border: 1px solid rgba(108, 92, 231, 0.5);
+  background: rgba(108, 92, 231, 0.14);
+  color: var(--accent);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1;
+  padding: 6px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.crumbbar .back:hover { background: var(--accent); color: #fff; }
+
 .empty-state {
   padding: 52px 20px;
   text-align: center;
