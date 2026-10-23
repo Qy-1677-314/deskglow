@@ -27,3 +27,7 @@ Win+D 或任务栏「显示桌面」之后，Dock 必须留在桌面上，图标
 `zorder.ps1` 必须是 UTF-8 带 BOM。没有 BOM 时，Windows PowerShell 5 会把其中的中文注释读坏，辅助进程马上退出，显示桌面的修复等于没加载。`zorder.js` 启动前会检查冻结标记并补上 BOM；标记被删掉时会拒绝启动。不要去掉这个检查。
 
 辅助进程自己退出后 `killed` 仍是 `false`。`ensure()` 必须同时要求 `exitCode == null`，启动参数保留 `-ExecutionPolicy Bypass`。`exit` 回调只能清掉自己那个进程。
+
+## 版本号只写一处
+
+版本号只在 `package.json` 的 `version` 和 README「当前版本」那一行出现。PR 描述、发布说明、commit message、README / changelog 一律**不叙述版本号的变更**——不写「版本号改为 x.y.z」「接在上一版之后」「1.1.0 是上一个正式版本」，也不拿版本号当小节标题。发版、写 PR、改文档之前先读 `.cursor/skills/deskgow-release/SKILL.md`。
