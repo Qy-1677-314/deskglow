@@ -30,4 +30,4 @@ Win+D 或任务栏「显示桌面」之后，Dock 必须留在桌面上，图标
 
 ## 版本号只写一处
 
-版本号只在 `package.json` 的 `version` 和 README「当前版本」那一行出现。PR 描述、发布说明、commit message、README / changelog 一律**不叙述版本号的变更**——不写「版本号改为 x.y.z」「接在上一版之后」「1.1.0 是上一个正式版本」，也不拿版本号当小节标题。发版、写 PR、改文档之前先读 `.cursor/skills/deskgow-release/SKILL.md`。
+版本号只在 `package.json` 的 `version` 和 README「当前版本」那一行出现。PR 描述、发布说明、commit message、README / changelog 一律**不叙述版本号的变更**——不写「版本号改为 x.y.z」「接在上一版之后」「1.1.0 是上一个正式版本」，文档里也不拿版本号当小节标题。PR 描述的第一行标题就是版本号（`## 1.1.1`），下面直接列功能。发版、写 PR、改文档之前先读 `.cursor/skills/deskgow-release/SKILL.md`。
