@@ -51,50 +51,161 @@ function uniquePath(dir, name) {
   return p;
 }
 
-/** 把 src 移动进 dir，返回新路径（跨盘时复制后删除） */
+const SHORTCUT_EXT = new Set(['.lnk', '.url']);
+
+function isShortcutName(name) {
+  return SHORTCUT_EXT.has(path.extname(name).toLowerCase());
+}
+
+function samePath(a, b) {
+  return String(a || '').toLowerCase() === String(b || '').toLowerCase();
+}
+
+function explainMoveError(e) {
+  const code = e && e.code;
+  if (code === 'EPERM' || code === 'EACCES') return '没有权限移走';
+  if (code === 'EBUSY') return '文件被占用';
+  if (code === 'ENOSPC') return '磁盘空间不够';
+  if (code === 'ENOENT') return '文件已经不在了';
+  return '移动失败';
+}
+
+/** Windows 只读的 .lnk 删不掉，先清掉只读属性 */
+function clearReadonly(p) {
+  try {
+    const st = fs.lstatSync(p);
+    if (st.mode & 0o200) return;
+    fs.chmodSync(p, st.mode | 0o200);
+  } catch (_) {}
+}
+
+function removeSource(p) {
+  clearReadonly(p);
+  try {
+    fs.rmSync(p, { recursive: true, force: true });
+    return;
+  } catch (_) {}
+  clearReadonly(p);
+  fs.rmSync(p, { recursive: true, force: true });
+}
+
+/**
+ * 个人桌面 + 公用桌面。
+ * 安装程序经常把快捷方式放到 C:\Users\Public\Desktop，资源管理器会合并显示。
+ * 面板扫描两边都能读到，收进文件夹也要两边都收。
+ */
+function desktopRoots() {
+  const out = [];
+  const push = (d) => {
+    if (!d || !fs.existsSync(d)) return;
+    if (out.some((x) => samePath(x, d))) return;
+    out.push(d);
+  };
+  try { push(app.getPath('desktop')); } catch (_) {}
+  push(path.join(process.env.PUBLIC || 'C:\\Users\\Public', 'Desktop'));
+  return out;
+}
+
+/**
+ * Dirent.isFile() 不能用来判断快捷方式。
+ * OneDrive「按需文件」和部分系统上的 .lnk 带重解析点，isFile() 为 false，
+ * 面板用 stat 仍能列出来，于是出现「面板看得到、收不进文件夹」。
+ */
+function entryIsDirectory(ent, full) {
+  if (ent.isDirectory()) return true;
+  if (ent.isFile()) return false;
+  try { return fs.statSync(full).isDirectory(); } catch (_) { return false; }
+}
+
+/** depth 0 只看这一层；1 再看下一层子文件夹。与面板扫描范围一致。 */
+function collectShortcutPaths(dir, depth, skipDirs, failed) {
+  const found = [];
+  if (!dir || depth < 0) return found;
+  if (skipDirs.some((s) => samePath(s, dir))) return found;
+  let ents = [];
+  try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) {
+    if (failed) failed.push({ name: path.basename(dir) || dir, error: '读不到这个文件夹' });
+    return found;
+  }
+  for (const ent of ents) {
+    const name = ent.name;
+    if (!name || name.startsWith('.') || name.startsWith('~$')) continue;
+    if (name.toLowerCase() === 'desktop.ini') continue;
+    const full = path.join(dir, name);
+    if (isShortcutName(name) && !entryIsDirectory(ent, full)) {
+      found.push(full);
+      continue;
+    }
+    if (depth > 0 && entryIsDirectory(ent, full)) {
+      found.push(...collectShortcutPaths(full, depth - 1, skipDirs, failed));
+    }
+  }
+  return found;
+}
+
+/** 把 src 移动进 dir，返回新路径（跨盘或云盘占位时复制后删除） */
 function moveInto(dir, src) {
   try { fs.mkdirSync(dir, { recursive: true }); } catch (_) {}
   const dest = uniquePath(dir, path.basename(src));
+  clearReadonly(src);
   try {
     fs.renameSync(src, dest);
     return dest;
-  } catch (_) {
-    const st = fs.statSync(src);
-    if (st.isDirectory()) {
-      fs.cpSync(src, dest, { recursive: true });
-      fs.rmSync(src, { recursive: true, force: true });
-    } else {
-      fs.copyFileSync(src, dest);
-      fs.unlinkSync(src);
-    }
-    return dest;
+  } catch (_) { /* 跨盘、占用、云盘占位 */ }
+  // .lnk / .url 永远按文件搬。lstat 跟着重解析点走时，不能把快捷方式当成目录复制。
+  let isDir = false;
+  if (!isShortcutName(path.basename(src))) {
+    try { isDir = fs.lstatSync(src).isDirectory(); } catch (_) {}
   }
+  try {
+    if (isDir) fs.cpSync(src, dest, { recursive: true });
+    else fs.copyFileSync(src, dest);
+    removeSource(src);
+  } catch (e) {
+    try { fs.rmSync(dest, { recursive: true, force: true }); } catch (_) {}
+    throw e;
+  }
+  return dest;
 }
 
-/** 把桌面上的 .lnk / .url 收进「快捷方式」文件夹 */
-function importDesktopShortcuts() {
-  ensure();
-  const target = dirs().shortcuts;
-  let moved = 0;
-  const details = [];
-  let desk = '';
-  try { desk = app.getPath('desktop'); } catch (_) {}
-  if (desk && fs.existsSync(desk)) {
-    let ents = [];
-    try { ents = fs.readdirSync(desk, { withFileTypes: true }); } catch (_) {}
-    for (const ent of ents) {
-      if (!ent.isFile()) continue;
-      const ext = path.extname(ent.name).toLowerCase();
-      if (ext !== '.lnk' && ext !== '.url') continue;
-      const src = path.join(desk, ent.name);
-      try {
-        const dest = moveInto(target, src);
-        details.push({ from: src, to: dest });
-        moved++;
-      } catch (_) { /* ignore */ }
+/**
+ * 把桌面上的 .lnk / .url 收进「快捷方式」文件夹。
+ * opts.roots / opts.target / opts.depth 只给自检用，平时不传。
+ */
+function importDesktopShortcuts(opts = {}) {
+  const d = ensure();
+  const target = opts.target || d.shortcuts;
+  try { fs.mkdirSync(target, { recursive: true }); } catch (_) {}
+  const skip = [d.root, d.shortcuts, d.archive, target];
+  const roots = opts.roots && opts.roots.length ? opts.roots : desktopRoots();
+  const depth = Number.isInteger(opts.depth) ? opts.depth : 1;
+  const failed = [];
+  const sources = [];
+  const seen = new Set();
+  for (const root of roots) {
+    for (const src of collectShortcutPaths(root, depth, skip, failed)) {
+      const k = src.toLowerCase();
+      if (seen.has(k)) continue;
+      seen.add(k);
+      if (samePath(path.dirname(src), target)) continue;
+      const low = src.toLowerCase();
+      const inTarget = low === target.toLowerCase() || low.startsWith(target.toLowerCase() + path.sep);
+      if (inTarget) continue;
+      sources.push(src);
     }
   }
-  return { moved, details };
+  let moved = 0;
+  const details = [];
+  for (const src of sources) {
+    try {
+      const dest = moveInto(target, src);
+      details.push({ from: src, to: dest });
+      moved++;
+    } catch (e) {
+      failed.push({ name: path.basename(src), error: explainMoveError(e) });
+    }
+  }
+  return { moved, details, failed };
 }
 
 /**
@@ -191,6 +302,6 @@ function open(which = 'root') {
 }
 
 module.exports = {
-  root, dirs, ensure, moveInto, uniquePath, importDesktopShortcuts,
+  root, dirs, ensure, moveInto, uniquePath, explainMoveError, importDesktopShortcuts,
   importDesktopFiles, countDesktopFiles, listDir, open,
 };

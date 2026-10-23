@@ -158,7 +158,7 @@ function itemHTML(it) {
   let face = '';
   let cls = 'item';
   let tip = esc(it.name);
-  if (it.kind === 'app') {
+  if (it.kind === 'app' || it.kind === 'system') {
     face = appIcon(it);
     if (it.missing) cls += ' missing';
   } else if (it.kind === 'group') {
@@ -178,7 +178,7 @@ function computeLayout() {
   const a = state.appearance;
   const itemW = a.iconSize + 12;
   const gap = a.gap;
-  const nApps = state.items.filter((i) => i.kind !== 'archive').length;
+  const nApps = state.items.filter((i) => i.kind !== 'archive' && !(i.kind === 'system' && i.closed)).length;
   const hasArchive = state.items.some((i) => i.kind === 'archive');
   const total = nApps + (hasArchive ? 1 : 0);
   const maxW = Math.max(380, Math.round(window.screen.availWidth * 0.94) - 48);
@@ -222,7 +222,7 @@ let lastLayout = '';
 
 function structKey() {
   return (state.items || [])
-    .map((i) => [i.id, i.kind, i.name, i.count, i.missing ? 1 : 0, i.kind === 'group' ? `${i.icon || '-'}/${(i.iconSrc || '').length}` : (i.icon || '').length, (i.preview || []).join(',').length].join(':'))
+    .map((i) => [i.id, i.kind, i.name, i.count, i.closed ? 1 : 0, i.missing ? 1 : 0, i.kind === 'group' ? `${i.icon || '-'}/${(i.iconSrc || '').length}` : (i.icon || '').length, (i.preview || []).join(',').length].join(':'))
     .join(';');
 }
 
@@ -255,7 +255,7 @@ function render() {
   lastLayout = lk;
   inlineArchive = inline;
 
-  const apps = state.items.filter((i) => i.kind !== 'archive');
+  const apps = state.items.filter((i) => i.kind !== 'archive' && !(i.kind === 'system' && i.closed));
   const archive = state.items.find((i) => i.kind === 'archive');
 
   if (!apps.length && !archive) {
@@ -777,7 +777,7 @@ document.addEventListener('pointerup', async (e) => {
   const M = 26;
   const outside = e.clientX < r.left - M || e.clientX > r.right + M || e.clientY < r.top - M || e.clientY > r.bottom + M;
   if (!over && outside) {
-    if (d.el.dataset.kind === 'archive') return;
+    if (d.el.dataset.kind === 'archive' || d.el.dataset.kind === 'system') return;
     await api.invoke('items:confirmRemove', d.id);
     return;
   }
@@ -794,7 +794,7 @@ document.addEventListener('pointerup', async (e) => {
   if (dragKind === 'archive') return;
 
   // 拖到两侧是换位置；拖到图标中间才建组或放入分组。分组本身始终可以换位置。
-  if (!center || dragKind === 'group' || d.shift) {
+  if (!center || dragKind === 'group' || dragKind === 'system' || targetKind === 'system' || d.shift) {
     await api.invoke('items:move', { id: d.id, targetId, after: rel >= 0.5 });
     return;
   }

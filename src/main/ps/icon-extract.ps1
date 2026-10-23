@@ -35,6 +35,15 @@ public class DgIcons
     [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
     static extern IntPtr SHGetFileInfo(string pszPath, uint dwFileAttributes, ref SHFILEINFO psfi, uint cbFileInfo, uint uFlags);
 
+    [DllImport("shell32.dll", EntryPoint = "SHGetFileInfo", CharSet = CharSet.Unicode)]
+    static extern IntPtr SHGetFileInfoPidl(IntPtr pidl, uint dwFileAttributes, ref SHFILEINFO psfi, uint cbFileInfo, uint uFlags);
+
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    static extern int SHParseDisplayName(string pszName, IntPtr pbc, out IntPtr ppidl, uint sfgaoIn, out uint psfgaoOut);
+
+    [DllImport("ole32.dll")]
+    static extern void CoTaskMemFree(IntPtr pv);
+
     [DllImport("shell32.dll")]
     static extern int SHGetImageList(int iImageList, ref Guid riid, out IImageList ppv);
 
@@ -102,19 +111,39 @@ public class DgIcons
     {
         if (string.IsNullOrEmpty(path)) return null;
         SHFILEINFO sfi = new SHFILEINFO();
-        IntPtr r = SHGetFileInfo(path, 0, ref sfi, (uint)Marshal.SizeOf(typeof(SHFILEINFO)), 0x4000);
-        if (r == IntPtr.Zero) return null;
+        IntPtr pidl = IntPtr.Zero;
+        bool parsed = false;
+        try
+        {
+            IntPtr r;
+            if (path.StartsWith("::"))
+            {
+                uint eaten;
+                if (SHParseDisplayName(path, IntPtr.Zero, out pidl, 0, out eaten) != 0 || pidl == IntPtr.Zero) return null;
+                parsed = true;
+                r = SHGetFileInfoPidl(pidl, 0, ref sfi, (uint)Marshal.SizeOf(typeof(SHFILEINFO)), 0x8 | 0x4000);
+            }
+            else
+            {
+                r = SHGetFileInfo(path, 0, ref sfi, (uint)Marshal.SizeOf(typeof(SHFILEINFO)), 0x4000);
+            }
+            if (r == IntPtr.Zero) return null;
 
-        Guid iid = new Guid("46EB5926-582E-4017-9FDF-E8998DAA0950");
-        IImageList list;
-        if (SHGetImageList(4, ref iid, out list) != 0 || list == null) return null;
+            Guid iid = new Guid("46EB5926-582E-4017-9FDF-E8998DAA0950");
+            IImageList list;
+            if (SHGetImageList(4, ref iid, out list) != 0 || list == null) return null;
 
-        IntPtr hicon = IntPtr.Zero;
-        try { if (list.GetIcon(sfi.iIcon, 1, ref hicon) != 0) return null; }
-        catch { return null; }
-        if (hicon == IntPtr.Zero) return null;
-        try { return IconToBitmap(hicon, size); }
-        finally { DestroyIcon(hicon); }
+            IntPtr hicon = IntPtr.Zero;
+            try { if (list.GetIcon(sfi.iIcon, 1, ref hicon) != 0) return null; }
+            catch { return null; }
+            if (hicon == IntPtr.Zero) return null;
+            try { return IconToBitmap(hicon, size); }
+            finally { DestroyIcon(hicon); }
+        }
+        finally
+        {
+            if (parsed && pidl != IntPtr.Zero) CoTaskMemFree(pidl);
+        }
     }
 
     public static string Extract(string primary, int index, string[] alts, string shell, int size)
@@ -178,8 +207,14 @@ foreach ($it in $items) {
     if ($af -and (Test-Path -LiteralPath $af)) { $alts += $af }
   }
 
-  $shell = Expand ([string]$it.shell)
-  if ($shell -and -not (Test-Path -LiteralPath $shell)) { $shell = $null }
+  $shellRaw = [string]$it.shell
+  $shell = $null
+  if ($shellRaw.StartsWith('::')) {
+    $shell = $shellRaw
+  } else {
+    $shell = Expand $shellRaw
+    if ($shell -and -not (Test-Path -LiteralPath $shell)) { $shell = $null }
+  }
 
   $idx = 0
   [int]::TryParse([string]$it.index, [ref]$idx) | Out-Null
