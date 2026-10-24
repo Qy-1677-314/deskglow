@@ -22,6 +22,7 @@ const DEFAULTS = {
     layout: 'auto',
     bgColor: '',                                   // '' = 跟随深浅主题
     glassOn: true,                                 // 玻璃底板开关
+    frameOn: true,                                 // 底板边框；不透明度为 0 时仍保留这一圈
     hoverBg: { on: true, color: '#ffffff', alpha: 70 },   // 悬停时图标后的浅色底
     magnify: { count: 5, scale: 1.40, speed: 220 }, // 准星放大：影响个数(1/3/5/7/9)、最大倍率、响应速度(ms)
     iconStroke: { on: false, width: 1.5, color: '#ffffff' },

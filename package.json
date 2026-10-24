@@ -1,7 +1,7 @@
 {
   "name": "deskglow",
   "productName": "DeskGlow 桌面美化",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "桌面快捷方式收纳坞 + 任务栏整理 + 自由摆放的桌面小组件",
   "main": "src/main/main.js",
   "author": "DeskGlow",

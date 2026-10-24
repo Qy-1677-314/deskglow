@@ -627,6 +627,7 @@ function renderAppearance() {
   set('rngRadius', 'valRadius', a.radius);
   $('#swLabels').checked = !!a.showLabels;
   $('#swGlass').checked = a.glassOn !== false;
+  $('#swFrame').checked = a.frameOn !== false;
 
   const hb = a.hoverBg || {};
   $('#swHoverBg').checked = hb.on !== false;
@@ -692,17 +693,20 @@ function updatePreview() {
   const rgb = rgbOf(a);
   const top = Math.min(1, (a.opacity / 100) * 1.2);
   const bottom = Math.min(1, (a.opacity / 100) * 0.9);
-  const glass = a.glassOn !== false && Number(a.opacity) > 0;
+  const glassOn = a.glassOn !== false;
+  const fillOn = glassOn && Number(a.opacity) > 0;
+  const frameOn = glassOn && a.frameOn !== false;
   dock.style.padding = `${Math.round(a.iconSize * 0.14)}px ${Math.round(a.iconSize * 0.2)}px`;
   dock.style.gap = Math.max(3, a.gap * 0.6) + 'px';
   if (fill) {
     const radius = Math.min(22, a.radius * 0.62);
-    fill.style.borderRadius = radius + 'px';
-    fill.style.background = glass ? `linear-gradient(168deg, rgba(${rgb},${top}), rgba(${rgb},${bottom}))` : 'transparent';
-    fill.style.borderColor = glass ? '' : 'transparent';
-    fill.style.backdropFilter = glass ? `blur(${Math.min(16, a.blur)}px)` : 'none';
     const inset = a.theme === 'dark' ? 'inset 0 1px 0 rgba(255,255,255,0.10)' : 'inset 0 1px 0 rgba(255,255,255,0.7)';
-    fill.style.boxShadow = glass ? inset : 'none';
+    const edge = a.theme === 'dark' ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.85)';
+    fill.style.borderRadius = radius + 'px';
+    fill.style.background = fillOn ? `linear-gradient(168deg, rgba(${rgb},${top}), rgba(${rgb},${bottom}))` : 'transparent';
+    fill.style.borderColor = frameOn ? edge : 'transparent';
+    fill.style.backdropFilter = (fillOn || frameOn) ? `blur(${Math.min(16, a.blur)}px)` : 'none';
+    fill.style.boxShadow = frameOn ? inset : 'none';
   }
 
   const shade = $('#pShade');
@@ -716,9 +720,12 @@ function updatePreview() {
     const y = Number(bsh.y) || 0;
     const reach = Math.max(14, Math.min(44, Math.round(8 + blur * 0.38 + Math.max(0, y) * 0.22)));
     const hide = Math.max(6, Math.min(14, Math.round(4 + blur * 0.08)));
-    shade.style.height = (reach + hide) + 'px';
+    const covered = a.glassOn !== false && Number(a.opacity) >= 40;
+    const overlap = covered ? hide : 0;
+    const head = covered ? al : al * 0.62;
+    shade.style.height = (reach + overlap) + 'px';
     shade.style.bottom = (-reach) + 'px';
-    shade.style.background = `linear-gradient(to bottom, rgba(${srgb},${al.toFixed(3)}) 0%, rgba(${srgb},${(al * 0.4).toFixed(3)}) 36%, rgba(${srgb},${(al * 0.1).toFixed(3)}) 68%, transparent 90%, transparent 100%)`;
+    shade.style.background = `linear-gradient(to bottom, rgba(${srgb},${head.toFixed(3)}) 0%, rgba(${srgb},${(al * 0.4).toFixed(3)}) 36%, rgba(${srgb},${(al * 0.1).toFixed(3)}) 68%, transparent 90%, transparent 100%)`;
   }
 
   const filter = previewIconFilter(a);
@@ -1478,6 +1485,7 @@ function bindEvents() {
 
   // 玻璃底板
   $('#swGlass').onchange = (e) => patchAppearance({ glassOn: e.target.checked });
+  $('#swFrame').onchange = (e) => patchAppearance({ frameOn: e.target.checked });
 
   // 准星放大
   $('#rngMagScale').oninput = (e) => {
@@ -1550,6 +1558,7 @@ function bindEvents() {
         hoverScale: 1.16, bottomOffset: 8, radius: 26,
         bgColor: '',
         glassOn: true,
+        frameOn: true,
         hoverBg: { on: true, color: '#ffffff', alpha: 70 },
         magnify: { count: 5, scale: 1.40, speed: 220 },
         iconStroke: { on: false, width: 1.5, color: '#ffffff' },

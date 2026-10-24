@@ -95,10 +95,17 @@ function barShadeMetrics(a) {
   if (a.autoHide) {
     reach = Math.min(reach, 8);
     hide = Math.min(hide, 12);
+  } else {
+    // 栏底到屏幕底只有 bottomOffset。再长的话，淡出还没结束就被屏幕切成一条硬边。
+    const room = Math.max(10, Number(a.bottomOffset) || 0);
+    if (reach > room) reach = room;
   }
+  // 底板接近全透明时，藏在后面的那一段会露出来，变成横穿图标的硬边。
+  const covered = a.glassOn !== false && Number(a.opacity) >= 40;
   return {
     reach,
-    hide,
+    hide: covered ? hide : 0,
+    head: covered ? 1 : 0.62,
     inset: Math.round(Math.min(radius * 0.42, 36)),
     fade: Math.round(Math.max(16, Math.min(radius * 0.85, 56))),
   };
@@ -123,6 +130,7 @@ function applyBarShade(a) {
   root.setProperty('--shade-rgb', hexToRgb(color) || (a.theme === 'dark' ? '0, 0, 0' : '28, 32, 74'));
   root.setProperty('--shade-a', al.toFixed(3));
   root.setProperty('--shade-hide', m.hide + 'px');
+  root.setProperty('--shade-head', String(m.head == null ? 1 : m.head));
   root.setProperty('--shade-reach', m.reach + 'px');
   root.setProperty('--shade-inset', m.inset + 'px');
   root.setProperty('--shade-fade', m.fade + 'px');
@@ -154,6 +162,7 @@ function applyAppearance(a) {
   document.body.dataset.autohide = a.autoHide ? 'true' : 'false';
   document.body.dataset.glass = a.glassOn === false ? 'false' : 'true';
   document.body.dataset.fill = (a.glassOn !== false && Number(a.opacity) > 0) ? 'on' : 'off';
+  document.body.dataset.frame = (a.glassOn !== false && a.frameOn !== false) ? 'true' : 'false';
   document.body.dataset.hoverbg = hb.on === false ? 'false' : 'true';
   autoHide = !!a.autoHide;
   if (!autoHide && collapsed) {
@@ -631,7 +640,7 @@ barEl.addEventListener('pointerleave', () => {
 /* --------------------------- 透明留白穿透 --------------------------- */
 /* 窗口比图标高一截：上面是放大和名字（「AI · 4 项」），下面是投影。
    那截是透明的，但窗口仍会吃掉右键，桌面菜单出不来。
-   名字气泡在图标外面，不能算进可点区域。底板完全透明时，只认图标本身。 */
+   名字气泡在图标外面，不能算进可点区域。底色和边框都没有时，只认图标本身。 */
 let lastHitKey = '';
 let overDock = true;
 
@@ -639,7 +648,8 @@ function glassHitsPointer() {
   const a = state && state.appearance;
   if (!a) return true;
   if (a.glassOn === false) return false;
-  return Number(a.opacity) > 0;
+  if (Number(a.opacity) > 0) return true;
+  return a.frameOn !== false;
 }
 
 function unionBox(into, b) {
