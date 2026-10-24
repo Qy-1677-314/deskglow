@@ -8,7 +8,7 @@
 </head>
 <body>
   <svg width="0" height="0" aria-hidden="true" style="position:absolute">
-    <filter id="iconFx" x="-80%" y="-90%" width="260%" height="280%" color-interpolation-filters="sRGB">
+    <filter id="iconFx" filterUnits="userSpaceOnUse" x="-180" y="-180" width="560" height="560" color-interpolation-filters="sRGB">
       <feMorphology id="strokeMorph" in="SourceAlpha" operator="dilate" radius="0" result="dilated"/>
       <feFlood id="strokeFlood" flood-color="#ffffff" flood-opacity="0" result="strokeColor"/>
       <feComposite in="strokeColor" in2="dilated" operator="in" result="stroke"/>
@@ -25,6 +25,7 @@
   </svg>
   <div class="stage" id="stage">
     <div class="bar" id="bar">
+      <div class="bar-fill" id="barFill"></div>
       <div class="bar-shade" id="barShade"></div>
       <div class="bar-glow" id="barGlow"></div>
       <div class="items-wrap" id="itemsWrap">

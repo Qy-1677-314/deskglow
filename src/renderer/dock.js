@@ -46,6 +46,7 @@ function applyIconFx(a) {
   const blur = shadowOn ? Math.max(0, Math.min(40, Number(sh.blur) || 0)) : 0;
   const y = shadowOn ? (Number(sh.y) || 0) : 0;
   const al = shadowOn ? Math.max(0, Math.min(0.7, (sh.alpha == null ? 22 : Number(sh.alpha)) / 100)) : 0;
+  sizeIconFilter(blur, y, strokeOn ? w : 0);
   const morph = document.getElementById('strokeMorph');
   const strokeFlood = document.getElementById('strokeFlood');
   const blurEl = document.getElementById('shadowBlur');
@@ -61,6 +62,18 @@ function applyIconFx(a) {
   shadowFlood.setAttribute('flood-opacity', al.toFixed(3));
 }
 
+/* 滤镜区域按模糊和偏移留够，否则晕开到边上会被切成一条直线。 */
+function sizeIconFilter(blur, y, stroke) {
+  const el = document.getElementById('iconFx');
+  if (!el) return;
+  const pad = Math.ceil(Math.max(0, blur) * 2.4 + Math.abs(Number(y) || 0) + Math.max(0, stroke) * 3 + 36);
+  el.setAttribute('filterUnits', 'userSpaceOnUse');
+  el.setAttribute('x', String(-pad));
+  el.setAttribute('y', String(-pad));
+  el.setAttribute('width', String(pad * 2 + 280));
+  el.setAttribute('height', String(pad * 2 + 280));
+}
+
 /* 玻璃顶边的内高光。外投影不走 box-shadow：窗口边界会把还没淡完的
    阴影切成一条硬边，所以外投影改画在 .bar-shade 上，并在 --shpad 内淡到 0。 */
 function buildBarShadow(a) {
@@ -69,15 +82,34 @@ function buildBarShadow(a) {
     : 'inset 0 1px 0 rgba(255,255,255,0.7)';
 }
 
-/* 投影在这段距离内淡完。自动隐藏时窗口下沿就是热区/把手，不能往下撑。 */
-function barShadowPad(a) {
-  if (a.autoHide) return 10;
+/* 底板投影的可见长度。最浓的一段用 hide 藏在底板后面，reach 是探出栏底的淡出。 */
+function barShadeMetrics(a) {
   const sh = a.barShadow || {};
-  if (!sh.on || a.glassOn === false) return 10;
+  const on = !!sh.on && a.glassOn !== false;
+  const radius = Math.max(0, Math.min(80, Number(a.radius) || 26));
+  if (!on) return { reach: 0, hide: 12, inset: 12, fade: 22 };
   const blur = Math.max(0, Math.min(60, Number(sh.blur) || 0));
   const y = Math.max(-10, Math.min(40, Number(sh.y) || 0));
-  const need = Math.round(Math.max(0, y) * 0.45 + blur * 0.9 + 16);
-  return Math.max(18, Math.min(78, need));
+  let reach = Math.max(12, Math.round(Math.max(0, y) * 0.85 + blur * 0.72 + 8));
+  let hide = Math.max(10, Math.round(blur * 0.38 + 10 + Math.max(0, -y) * 0.6));
+  if (a.autoHide) {
+    reach = Math.min(reach, 8);
+    hide = Math.min(hide, 12);
+  }
+  return {
+    reach,
+    hide,
+    inset: Math.round(Math.min(radius * 0.42, 36)),
+    fade: Math.round(Math.max(16, Math.min(radius * 0.85, 56))),
+  };
+}
+
+/* 栏底到窗口底的留白。自动隐藏时下沿就是热区，不能往下撑。 */
+function barShadowPad(a) {
+  if (a.autoHide) return 10;
+  const m = barShadeMetrics(a);
+  if (!m.reach) return 10;
+  return Math.max(18, Math.min(150, m.reach + 10));
 }
 
 function applyBarShade(a) {
@@ -85,13 +117,15 @@ function applyBarShade(a) {
   const sh = a.barShadow || {};
   const on = !!sh.on && a.glassOn !== false;
   document.body.dataset.barshadow = on ? 'true' : 'false';
-  const y = Math.max(-10, Math.min(40, Number(sh.y) || 0));
   const al = (sh.alpha == null ? 22 : Math.max(0, Math.min(80, Number(sh.alpha)))) / 100;
   const color = sh.color || (a.theme === 'dark' ? '#000000' : '#1c204a');
+  const m = barShadeMetrics(a);
   root.setProperty('--shade-rgb', hexToRgb(color) || (a.theme === 'dark' ? '0, 0, 0' : '28, 32, 74'));
   root.setProperty('--shade-a', al.toFixed(3));
-  const shift = Math.max(-6, Math.min(6, Math.round((y - 8) * 0.28)));
-  root.setProperty('--shade-shift', shift + 'px');
+  root.setProperty('--shade-hide', m.hide + 'px');
+  root.setProperty('--shade-reach', m.reach + 'px');
+  root.setProperty('--shade-inset', m.inset + 'px');
+  root.setProperty('--shade-fade', m.fade + 'px');
 }
 
 function applyAppearance(a) {
@@ -119,6 +153,7 @@ function applyAppearance(a) {
   document.body.dataset.labels = a.showLabels ? 'true' : 'false';
   document.body.dataset.autohide = a.autoHide ? 'true' : 'false';
   document.body.dataset.glass = a.glassOn === false ? 'false' : 'true';
+  document.body.dataset.fill = (a.glassOn !== false && Number(a.opacity) > 0) ? 'on' : 'off';
   document.body.dataset.hoverbg = hb.on === false ? 'false' : 'true';
   autoHide = !!a.autoHide;
   if (!autoHide && collapsed) {
@@ -168,7 +203,7 @@ function itemHTML(it) {
     face = `<div class="archive-tile">${ARCHIVE_SVG}</div>`;
   }
   return `<div class="${cls}" data-id="${it.id}" data-kind="${it.kind || 'archive'}">
-    <div class="glyph">${face}</div>
+    <div class="glyph"><div class="face">${face}</div></div>
     <div class="tip">${tip}</div>
   </div>`;
 }

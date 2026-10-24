@@ -51,14 +51,19 @@ function rgba(hex, alpha) {
 }
 
 /* ------------------------------ 电量图形 ------------------------------ */
-/** 并排模式的小电池图标（正方形，不被拉伸） */
+/** 充电闪电。亮黄加深色描边，压在电量填色上也能分开。 */
+function chargeBolt(cls) {
+  return `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 1.6 3.7 13.1h6.7l-1.7 9.3 11.6-12.3h-6.8z" fill="#ffe14a" stroke="#1c1608" stroke-width="1.25" stroke-linejoin="round" paint-order="stroke"/></svg>`;
+}
+
+/** 并排模式的小电池图标（正方形，不被拉伸）。充电时闪电盖在电量上。 */
 function batterySvg(pct, charging, size) {
   const lv = pct == null ? 0 : Math.max(0, Math.min(16, Math.round((pct / 100) * 16)));
   const fill = lv > 0
     ? `<rect x="3.6" y="8.6" width="${lv}" height="6.8" rx="1.3" fill="currentColor" stroke="none"/>`
     : '';
   const bolt = charging
-    ? `<path d="M12.7 6.4 8.3 12.5h3.1l-1 4.1 4.5-6.1h-3.1z" fill="currentColor" stroke="none"/>`
+    ? `<path d="M11 4.4 6.4 12.8h3.3l-.84 6.8 5.74-8.99h-3.36z" fill="#ffe14a" stroke="#1c1608" stroke-width="0.75" stroke-linejoin="round" paint-order="stroke"/>`
     : '';
   return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
     <rect x="1.8" y="7.4" width="17.4" height="9.2" rx="2.6"/><path d="M21.4 10.3v3.4"/>${fill}${bolt}</svg>`;
@@ -74,19 +79,17 @@ const BAT_NUB_W = 5;
 const BAT_BODY_LEFT = `${((BAT_BODY_X / BAT_VB) * 100).toFixed(4)}%`;
 const BAT_BODY_PCT = `${((BAT_BODY_W / BAT_VB) * 100).toFixed(4)}%`;
 
-/** 重叠模式的电池外框：横向随内容拉长，描边用 non-scaling-stroke 保持粗细一致 */
-function batteryShape(pct, charging, hasText, iconSize) {
+/** 重叠模式的电池外框：横向随内容拉长，描边用 non-scaling-stroke 保持粗细一致。
+    闪电不画进这个 SVG，否则会被横向拉扁；充电图标另用 HTML 叠在外框上。 */
+function batteryShape(pct, hasText, iconSize) {
   const ratio = pct == null ? 0 : Math.max(0, Math.min(100, pct)) / 100;
   const fw = (BAT_BODY_W - 9) * ratio;
   const sw = Math.max(1.4, Math.min(2.8, clamp(iconSize, 8, 96, 26) * 0.09));
   const fill = fw > 0.6
     ? `<rect x="6.5" y="12.5" width="${fw.toFixed(1)}" height="27" rx="6" fill="currentColor" stroke="none" opacity="${hasText ? 0.32 : 1}"/>`
     : '';
-  const bolt = (charging && !hasText)
-    ? `<path d="M71 11.5 55 31h9.2l-2.6 9.8L78 22.5h-9.2z" fill="currentColor" stroke="none"/>`
-    : '';
   return `<svg viewBox="0 0 ${BAT_VB} 52" preserveAspectRatio="none" fill="none" stroke="currentColor" stroke-width="${sw.toFixed(2)}" stroke-linejoin="round" stroke-linecap="round" overflow="visible">
-    <rect x="${BAT_BODY_X}" y="7.5" width="${BAT_BODY_W}" height="37" rx="10.2" vector-effect="non-scaling-stroke"/>${fill}${bolt}
+    <rect x="${BAT_BODY_X}" y="7.5" width="${BAT_BODY_W}" height="37" rx="10.2" vector-effect="non-scaling-stroke"/>${fill}
     <rect x="${BAT_NUB_X}" y="17.5" width="${BAT_NUB_W}" height="17" rx="2.4" fill="currentColor" stroke="none"/></svg>`;
 }
 
@@ -147,12 +150,12 @@ function batteryHtml(el) {
     const hasShadow = !!(el.text && el.text.shadow && el.text.shadow.on);
     const numStyle = `color:${numColor}`
       + (hasShadow ? '' : ';text-shadow:0 1px 2px rgba(0,0,0,.6),0 0 3px rgba(0,0,0,.45)');
-    const bolt = b.charging
-      ? `<svg class="bat-bolt" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M13 2 5.5 13.2h4.6L9 22l7.6-11.4h-4.7z"/></svg>`
-      : '';
+    // 有百分比时闪电跟在数字左边，一起居中；没有数字时闪电单独盖在电池身体中央。
+    const bolt = b.charging ? chargeBolt(hasText ? 'bat-bolt' : 'bat-bolt mid') : '';
     return `<div class="bat-stack" style="--ic:${iconSize}px;color:${iconColor}">
         <div class="bat-inline">
-          <span class="bat-shape" aria-hidden="true">${batteryShape(pct, b.charging, hasText, iconSize)}</span>
+          <span class="bat-shape" aria-hidden="true">${batteryShape(pct, hasText, iconSize)}</span>
+          ${hasText ? '' : bolt}
           ${hasText ? `<span class="bat-num" style="${numStyle}">${bolt}${esc(txt)}</span>` : ''}
         </div>
         ${track(true)}
@@ -261,6 +264,23 @@ function inkSlack(body) {
   };
 }
 
+/** 背景、块阴影或内边距在时，盒子要留住内边距，不能再削到墨迹上，
+    否则圆角底板会切进字形，阴影也贴着字被切出一条边。 */
+function hasPlate(el) {
+  return !!((el.bg && el.bg.on) || (el.shadow && el.shadow.on) || el.pad > 0);
+}
+
+/** 文字阴影 / 块阴影探出墨迹的距离。盒子外圈留出这么多，晕开才不会被切掉。 */
+function fxSpill(el) {
+  let n = 0;
+  const t = el.text && el.text.shadow;
+  if (t && t.on) n = Math.max(n, Math.abs(Number(t.y) || 0) + (Number(t.blur) || 0));
+  const s = el.shadow;
+  if (s && s.on) n = Math.max(n, Math.abs(Number(s.y) || 0) + (Number(s.blur) || 0));
+  if (n <= 0) return 0;
+  return Math.min(140, Math.ceil(n + 48));
+}
+
 /** 把元素盒子削到文字墨迹上（幂等：尺寸被手动改过时会把之前的削掉清回去） */
 function tightenBox(node) {
   const { root, body, el } = node;
@@ -268,6 +288,12 @@ function tightenBox(node) {
   if (!kids.length || !TEXT_TIGHT.has(el.type)) return;
   const first = kids[0];
   const last = kids[kids.length - 1];
+  if (hasPlate(el)) {
+    first.style.marginTop = '';
+    last.style.marginBottom = '';
+    body.style.marginRight = '';
+    return;
+  }
 
   let m = null;
   if (!el.h) {
@@ -286,16 +312,24 @@ function tightenBox(node) {
 
 /* ------------------------------ 样式 ------------------------------ */
 function boxStyle(el) {
-  const s = [`left:${el.x}px`, `top:${el.y}px`];
-  if (el.w) s.push(`width:${el.w}px`);
-  if (el.h) s.push(`height:${el.h}px`);
+  const spill = fxSpill(el);
+  const pad = el.pad || 0;
+  const s = [`left:${el.x}px`, `top:${el.y}px`, `--spill:${spill}px`, `--radius:${el.radius || 0}px`];
+  if (el.w) s.push(`width:${el.w + spill * 2}px`);
+  if (el.h) s.push(`height:${el.h + spill * 2}px`);
   if (el.rotate) s.push(`transform:rotate(${el.rotate}deg)`);
   if (el.opacity < 100) s.push(`opacity:${clamp(el.opacity, 0, 100, 100) / 100}`);
-  if (el.pad) s.push(`padding:${el.pad}px`);
-  if (el.radius) s.push(`border-radius:${el.radius}px`);
-  if (el.bg && el.bg.on) s.push(`background:${rgba(el.bg.color, el.bg.alpha)}`);
-  if (el.shadow && el.shadow.on) {
-    s.push(`box-shadow:0 ${clamp(el.shadow.y, -40, 40, 0)}px ${clamp(el.shadow.blur, 0, 80, 0)}px ${rgba(el.shadow.color, el.shadow.alpha)}`);
+  if (spill || pad) s.push(`padding:${spill + pad}px`);
+  if (spill) s.push(`margin:${-spill}px`);
+  const plate = (el.bg && el.bg.on) || (el.shadow && el.shadow.on);
+  if (plate) {
+    s.push('--plate-on:block');
+    s.push(`--plate:${el.bg && el.bg.on ? rgba(el.bg.color, el.bg.alpha) : 'transparent'}`);
+    s.push(el.shadow && el.shadow.on
+      ? `--plate-shadow:0 ${clamp(el.shadow.y, -40, 40, 0)}px ${clamp(el.shadow.blur, 0, 80, 0)}px ${rgba(el.shadow.color, el.shadow.alpha)}`
+      : '--plate-shadow:none');
+  } else {
+    s.push('--plate-on:none', '--plate:transparent', '--plate-shadow:none');
   }
   return s.join(';');
 }
@@ -330,6 +364,10 @@ function buildNode(el) {
   root.dataset.id = el.id;
   root.style.cssText = boxStyle(el) + ';' + textStyle(el);
   if (!el.visible) root.style.opacity = String(0.35);
+
+  const plate = document.createElement('div');
+  plate.className = 'el-plate';
+  root.appendChild(plate);
 
   const body = document.createElement('div');
   body.className = 'elbody';
@@ -382,9 +420,20 @@ function refreshBatteryNodes() {
 }
 
 /* ------------------------------ 几何 ------------------------------ */
+function spillOf(node) {
+  const n = parseFloat(node.root.style.getPropertyValue('--spill'));
+  return Number.isFinite(n) ? n : 0;
+}
+
 function rectOf(node) {
+  const s = spillOf(node);
   const r = node.root;
-  return { x: r.offsetLeft, y: r.offsetTop, w: r.offsetWidth, h: r.offsetHeight };
+  return {
+    x: r.offsetLeft + s,
+    y: r.offsetTop + s,
+    w: Math.max(0, r.offsetWidth - s * 2),
+    h: Math.max(0, r.offsetHeight - s * 2),
+  };
 }
 
 /** 一组元素的包围盒（用 layout 坐标，忽略旋转，够用且稳） */
@@ -663,10 +712,11 @@ function onPointerMove(e) {
   drag.nh = Math.max(16, Math.round(h));
   drag.nx = Math.max(0, Math.round(x));
   drag.ny = Math.max(0, Math.round(y));
+  const spill = spillOf(drag.node) * 2;
   drag.root.style.left = `${drag.nx}px`;
   drag.root.style.top = `${drag.ny}px`;
-  drag.root.style.width = `${drag.nw}px`;
-  drag.root.style.height = `${drag.nh}px`;
+  drag.root.style.width = `${drag.nw + spill}px`;
+  drag.root.style.height = `${drag.nh + spill}px`;
   drag.root.classList.add('fixed-h');
   drag.node.el.x = drag.nx;
   drag.node.el.y = drag.ny;

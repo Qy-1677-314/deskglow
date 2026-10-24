@@ -29,7 +29,22 @@ body.editing .stage { pointer-events: auto; }
   flex-direction: column;
   align-items: flex-start;
   transform-origin: center center;
-  will-change: left, top;
+  /* 不要 will-change。单独合成层会把探出墨迹的阴影切掉。
+     isolation 只用来把底板的 z-index 关在自己盒子里，阴影已经留在内边距内。 */
+  overflow: visible;
+  isolation: isolate;
+  pointer-events: none;
+}
+/* 阴影留白在盒子外圈，不参与点击，避免挡住旁边的元素 */
+.el-plate {
+  position: absolute;
+  inset: var(--spill, 0px);
+  border-radius: var(--radius, 0px);
+  background: var(--plate, transparent);
+  box-shadow: var(--plate-shadow, none);
+  display: var(--plate-on, none);
+  z-index: -1;
+  pointer-events: auto;
 }
 .el.hide { display: none; }
 .el.fixed-h { justify-content: center; }
@@ -54,7 +69,7 @@ body.editing .stage { pointer-events: auto; }
   display: block;
   width: 100%;
   height: 100%;
-  border-radius: inherit;
+  border-radius: var(--radius, 0px);
   -webkit-user-drag: none;
   pointer-events: none;
 }
@@ -106,10 +121,24 @@ body.editing .stage { pointer-events: auto; }
   white-space: nowrap;
 }
 .bat-inline .bat-bolt {
-  width: 0.7em;
-  height: 0.7em;
-  margin-right: 0.22em;
+  width: 0.95em;
+  height: 0.95em;
+  margin-right: 0.14em;
   flex: none;
+  display: block;
+  overflow: visible;
+}
+/* 没有百分比时，闪电盖在电池身体中央（正极在右侧，所以略偏左） */
+.bat-inline .bat-bolt.mid {
+  position: absolute;
+  z-index: 2;
+  left: 46%;
+  top: 50%;
+  width: calc(var(--ic, 26px) * 0.42);
+  height: calc(var(--ic, 26px) * 0.72);
+  margin: 0;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
 }
 .bat-row {
   display: flex;
@@ -136,12 +165,13 @@ body.editing .stage { pointer-events: auto; }
 /* ---------------- 编辑态 ---------------- */
 body.editing .el { cursor: move; }
 
-/* 编辑态：框子贴着元素盒走。元素盒已经由 tightenBox() 削到文字墨迹上，
-   所以这里不再外扩 —— 外扩那几像素就是对不齐的元凶。 */
+/* 编辑态：框子贴着可见内容。--spill 是留给阴影的外圈，不画进虚线里。 */
+body.editing .elbody,
+body.editing .el-plate { pointer-events: auto; cursor: move; }
 body.editing .el::after {
   content: '';
   position: absolute;
-  inset: 0;
+  inset: var(--spill, 0px);
   border: 1px dashed rgba(124, 107, 255, 0.75);
   border-radius: 5px;
   pointer-events: none;
@@ -193,14 +223,14 @@ body.editing .el.sel.sel-primary::after {
   box-shadow: 0 1px 3px rgba(20, 24, 60, 0.35);
   z-index: 3;
 }
-.hz[data-h='nw'] { left: 0; top: 0; cursor: nwse-resize; }
-.hz[data-h='n'] { left: 50%; top: 0; cursor: ns-resize; }
-.hz[data-h='ne'] { left: 100%; top: 0; cursor: nesw-resize; }
-.hz[data-h='e'] { left: 100%; top: 50%; cursor: ew-resize; }
-.hz[data-h='se'] { left: 100%; top: 100%; cursor: nwse-resize; }
-.hz[data-h='s'] { left: 50%; top: 100%; cursor: ns-resize; }
-.hz[data-h='sw'] { left: 0; top: 100%; cursor: nesw-resize; }
-.hz[data-h='w'] { left: 0; top: 50%; cursor: ew-resize; }
+.hz[data-h='nw'] { left: var(--spill, 0px); top: var(--spill, 0px); cursor: nwse-resize; }
+.hz[data-h='n'] { left: 50%; top: var(--spill, 0px); cursor: ns-resize; }
+.hz[data-h='ne'] { left: calc(100% - var(--spill, 0px)); top: var(--spill, 0px); cursor: nesw-resize; }
+.hz[data-h='e'] { left: calc(100% - var(--spill, 0px)); top: 50%; cursor: ew-resize; }
+.hz[data-h='se'] { left: calc(100% - var(--spill, 0px)); top: calc(100% - var(--spill, 0px)); cursor: nwse-resize; }
+.hz[data-h='s'] { left: 50%; top: calc(100% - var(--spill, 0px)); cursor: ns-resize; }
+.hz[data-h='sw'] { left: var(--spill, 0px); top: calc(100% - var(--spill, 0px)); cursor: nesw-resize; }
+.hz[data-h='w'] { left: var(--spill, 0px); top: 50%; cursor: ew-resize; }
 
 /* ---------------- 编辑工具条 ---------------- */
 .hud {

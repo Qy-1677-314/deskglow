@@ -1,32 +1,59 @@
 'use strict';
 /**
  * DeskGlow 软件文件夹
- * 结构：
+ * 结构（默认）：
  *   %USERPROFILE%\DeskGlow\
  *     ├─ 快捷方式\    （桌面快捷方式被收进这里，Dock 从这里读取）
  *     └─ 文件收纳\    （拖进「文件合集」的文件会移动到这里）
+ * 位置可在控制面板「文件 → 软件文件夹」里改：
+ *   store.vault = { root, shortcuts, archive }，任一项为空则跟随上一级。
  */
 const fs = require('fs');
 const path = require('path');
 const { app, shell } = require('electron');
+const store = require('./store');
 
-let ROOT = null;
-
-function root() {
-  if (ROOT) return ROOT;
+function defaultRoot() {
   let base = '';
   try { base = app.getPath('home'); } catch (_) { /* ignore */ }
   if (!base) { try { base = app.getPath('userData'); } catch (_) { base = process.cwd(); } }
-  ROOT = path.join(base, 'DeskGlow');
-  return ROOT;
+  return path.join(base, 'DeskGlow');
+}
+
+function vaultCfg() {
+  try {
+    const v = store.get() && store.get().vault;
+    return v && typeof v === 'object' ? v : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function pickPath(value) {
+  const s = String(value || '').trim();
+  if (!s) return '';
+  try { return path.resolve(s); } catch (_) { return ''; }
+}
+
+function root() {
+  return pickPath(vaultCfg().root) || defaultRoot();
 }
 
 function dirs() {
   const r = root();
+  const c = vaultCfg();
+  const shortcuts = pickPath(c.shortcuts) || path.join(r, '快捷方式');
+  const archive = pickPath(c.archive) || path.join(r, '文件收纳');
   return {
     root: r,
-    shortcuts: path.join(r, '快捷方式'),
-    archive: path.join(r, '文件收纳'),
+    shortcuts,
+    archive,
+    // 哪几项被用户改过（渲染层用来显示「自定义」和「恢复默认」）
+    custom: {
+      root: !!pickPath(c.root),
+      shortcuts: !!pickPath(c.shortcuts),
+      archive: !!pickPath(c.archive),
+    },
   };
 }
 
@@ -143,7 +170,9 @@ function collectShortcutPaths(dir, depth, skipDirs, failed) {
   return found;
 }
 
-/** 把 src 移动进 dir，返回新路径（跨盘或云盘占位时复制后删除） */
+/**
+ * 把 src 移动进 dir，返回新路径（跨盘或云盘占位时复制后删除）
+ */
 function moveInto(dir, src) {
   try { fs.mkdirSync(dir, { recursive: true }); } catch (_) {}
   const dest = uniquePath(dir, path.basename(src));
@@ -166,6 +195,40 @@ function moveInto(dir, src) {
     throw e;
   }
   return dest;
+}
+
+/** 目录里有多少个「真实」条目（迁移确认里报数字用） */
+function countTop(dir) {
+  if (!dir) return 0;
+  let ents = [];
+  try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { return 0; }
+  return ents.filter((e) => {
+    const n = e.name || '';
+    return n && !n.startsWith('.') && n.toLowerCase() !== 'desktop.ini';
+  }).length;
+}
+
+/**
+ * 把 fromDir 里的东西整体搬进 toDir（迁移软件文件夹用）。
+ * 返回 { moved:[{from,to}], failed:[{name,error}] }，moveInto 负责同盘改名 / 跨盘复制。
+ */
+function moveAll(fromDir, toDir) {
+  const out = { moved: [], failed: [] };
+  if (!fromDir || !toDir || samePath(fromDir, toDir)) return out;
+  let ents = [];
+  try { ents = fs.readdirSync(fromDir, { withFileTypes: true }); } catch (_) { return out; }
+  try { fs.mkdirSync(toDir, { recursive: true }); } catch (_) { /* ignore */ }
+  for (const ent of ents) {
+    const name = ent.name || '';
+    if (!name || name.startsWith('.') || name.toLowerCase() === 'desktop.ini') continue;
+    const src = path.join(fromDir, name);
+    try {
+      out.moved.push({ from: src, to: moveInto(toDir, src) });
+    } catch (e) {
+      out.failed.push({ name, error: explainMoveError(e) });
+    }
+  }
+  return out;
 }
 
 /**
@@ -302,6 +365,6 @@ function open(which = 'root') {
 }
 
 module.exports = {
-  root, dirs, ensure, moveInto, uniquePath, explainMoveError, importDesktopShortcuts,
-  importDesktopFiles, countDesktopFiles, listDir, open,
+  root, defaultRoot, dirs, ensure, moveInto, moveAll, countTop, uniquePath, explainMoveError,
+  importDesktopShortcuts, importDesktopFiles, countDesktopFiles, listDir, open, samePath,
 };

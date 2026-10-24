@@ -633,6 +633,8 @@ function buildState() {
       root: vd.root,
       shortcuts: vd.shortcuts,
       archive: vd.archive,
+      custom: vd.custom || { root: false, shortcuts: false, archive: false },
+      defaultRoot: vault.defaultRoot(),
       desktopShortcuts: desktopEntries.filter((e) => e.isShortcut && !e.path.toLowerCase().startsWith(vd.root.toLowerCase())).length,
       desktopFiles: desktopFilesCached(),
     },
@@ -1560,8 +1562,9 @@ async function refreshBattery() {
       };
     }
   } catch (_) { /* 读不到就按没有电池处理 */ }
-  // 电源状态以系统事件为准，比 Win32_Battery 的状态码可靠
+  // 是否接通电源以系统事件为准。拔掉电源后即使脚本还报着充电，闪电也马上收掉。
   try { next.ac = !powerMonitor.isOnBatteryPower(); } catch (_) { /* ignore */ }
+  if (!next.ac) next.charging = false;
   batteryBusy = false;
   batteryState = next;
   broadcastBattery();
@@ -2092,6 +2095,154 @@ async function scanPrompt() {
   return { mode: 'add', ...r, healed };
 }
 
+/* ------------------------------------------------------------------ */
+/* 软件文件夹换位置                                                     */
+/* ------------------------------------------------------------------ */
+
+const VAULT_KINDS = ['root', 'shortcuts', 'archive'];
+const VAULT_LABEL = { shortcuts: '快捷方式', archive: '文件收纳' };
+
+/** 新位置是不是落在旧文件夹里面（那样等于把自己搬进自己） */
+function insideOrSame(parent, child) {
+  const a = path.resolve(parent).toLowerCase();
+  const b = path.resolve(child).toLowerCase();
+  return b === a || b.startsWith(a + path.sep);
+}
+
+/** 迁移完成后，把配置里指向旧位置的路径改到新位置（Dock 图标、收纳排序、已隐藏列表） */
+function rewritePathsForMoves(moves) {
+  if (!moves || !moves.length) return 0;
+  const pairs = moves
+    .map((m) => [String(m.from).toLowerCase(), m.to])
+    .sort((a, b) => b[0].length - a[0].length);
+  let n = 0;
+  const fix = (p) => {
+    if (!p) return p;
+    const low = String(p).toLowerCase();
+    for (const [from, to] of pairs) {
+      if (low === from) { n++; return to; }
+      if (low.startsWith(from + path.sep)) { n++; return to + String(p).slice(from.length); }
+    }
+    return p;
+  };
+  const s = store.get();
+  for (const it of s.items || []) {
+    if (it.kind === 'app') { it.path = fix(it.path); continue; }
+    if (it.kind === 'group') for (const c of it.children || []) c.path = fix(c.path);
+  }
+  if (Array.isArray(s.removedPaths)) s.removedPaths = s.removedPaths.map(fix);
+  if (s.archive && Array.isArray(s.archive.order)) s.archive.order = s.archive.order.map(fix);
+  return n;
+}
+
+/**
+ * 把「快捷方式」/「文件收纳」/整个根目录迁移到新位置。
+ * kind = 'root' 时两个文件夹一起搬，并清掉单项自定义；useDefault 走回默认位置。
+ */
+async function relocateVault(kind, opts = {}) {
+  if (!VAULT_KINDS.includes(kind)) return { ok: false, error: '不认识的文件夹' };
+  const before = vault.dirs();
+  const parent = panelWin && !panelWin.isDestroyed() ? panelWin : null;
+  const ask = (o) => (parent ? dialog.showOpenDialog(parent, o) : dialog.showOpenDialog(o));
+  const say = (o) => (parent ? dialog.showMessageBox(parent, o) : dialog.showMessageBox(o));
+
+  let picked = '';
+  if (!opts.useDefault) {
+    const r = await ask({
+      title: kind === 'root' ? '选择 DeskGlow 文件夹的新位置' : `选择「${VAULT_LABEL[kind]}」文件夹的新位置`,
+      buttonLabel: '放到这里',
+      properties: ['openDirectory', 'createDirectory'],
+      defaultPath: kind === 'root' ? path.dirname(before.root) : before[kind],
+    });
+    if (r.canceled || !r.filePaths[0]) return { ok: false, canceled: true };
+    picked = path.resolve(r.filePaths[0]);
+  }
+
+  const cfg = { ...(store.get().vault || {}) };
+  const plan = [];
+  if (kind === 'root') {
+    const nr = picked || vault.defaultRoot();
+    // 选回默认位置时不要留下「自定义」标记
+    cfg.root = picked && !vault.samePath(nr, vault.defaultRoot()) ? nr : '';
+    cfg.shortcuts = '';
+    cfg.archive = '';
+    const nextShortcuts = path.join(nr, '快捷方式');
+    const nextArchive = path.join(nr, '文件收纳');
+    if (!vault.samePath(before.shortcuts, nextShortcuts)) plan.push({ from: before.shortcuts, to: nextShortcuts });
+    if (!vault.samePath(before.archive, nextArchive)) plan.push({ from: before.archive, to: nextArchive });
+  } else {
+    const dest = picked || path.join(before.root, VAULT_LABEL[kind]);
+    const other = kind === 'shortcuts' ? before.archive : before.shortcuts;
+    // 两个文件夹不能重叠：既不能放进对方里面，也不能把对方套进来
+    if (insideOrSame(other, dest) || insideOrSame(dest, other)) {
+      return { ok: false, error: '不能和另一个文件夹放在同一处或互相包含' };
+    }
+    if (!vault.samePath(before[kind], dest)) plan.push({ from: before[kind], to: dest });
+    // 正好落在「根目录下的同名文件夹」时不写死路径，以后根目录换了它也自动跟着走
+    const followRoot = vault.samePath(dest, path.join(before.root, VAULT_LABEL[kind]));
+    cfg[kind] = picked && !followRoot ? dest : '';
+  }
+
+  if (!plan.length) {
+    store.set({ vault: cfg });
+    store.save(true);
+    broadcast();
+    return { ok: true, moved: 0, failed: [], vault: buildState().vault };
+  }
+  for (const p of plan) {
+    if (insideOrSame(p.from, p.to)) return { ok: false, error: '新位置不能放在原文件夹里面' };
+  }
+
+  const count = plan.reduce((n, p) => n + vault.countTop(p.from), 0);
+  if (count) {
+    const lines = plan.map((p) => `${path.basename(p.from)} → ${p.to}`).join('\n');
+    const c = await say({
+      type: 'question',
+      buttons: ['开始迁移', '取消'],
+      defaultId: 0,
+      cancelId: 1,
+      noLink: true,
+      title: '迁移软件文件夹',
+      message: `把现有 ${count} 个项目搬到新位置？`,
+      detail: `${lines}\n\n文件是移动，不会删除。Dock 上的图标和收纳夹会自动指向新位置。`,
+    });
+    if (c.response !== 0) return { ok: false, canceled: true };
+  }
+
+  const moves = [];
+  const failed = [];
+  for (const p of plan) {
+    try {
+      fs.mkdirSync(p.to, { recursive: true });
+    } catch (e) {
+      return { ok: false, error: '新位置建不了：' + vault.explainMoveError(e) };
+    }
+  }
+  for (const p of plan) {
+    const r = vault.moveAll(p.from, p.to);
+    moves.push(...r.moved);
+    failed.push(...r.failed);
+    try { fs.rmdirSync(p.from); } catch (_) { /* 还有东西没搬走，留着 */ }
+  }
+
+  store.set({ vault: cfg });
+  const rewritten = rewritePathsForMoves(moves);
+  vault.ensure();
+  refreshDesktop();
+  healPaths();
+  invalidateArchive();
+  desktopFileCountAt = 0;
+  store.save(true);
+  try {
+    await refreshInspect();
+    await warmIcons();
+  } catch (e) {
+    console.warn('[vault] relocate icons', e && e.message ? e.message : e);
+  }
+  broadcast();
+  return { ok: true, moved: moves.length, failed, rewritten, vault: buildState().vault };
+}
+
 const taskbarPath = () => app.getPath('userData');
 
 const LOGIN_RUN_KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run';
@@ -2603,6 +2754,8 @@ function registerIpc() {
 
   ipcMain.handle('archive:list', () => archiveList().map((e) => ({ ...e, icon: iconUrl(e.path) })));
 
+  ipcMain.handle('archive:readDir', (e, dir) => readArchiveDir(dir));
+
   ipcMain.handle('archive:reorder', (e, { paths }) => {
     if (!Array.isArray(paths) || !paths.length) return false;
     const s = store.get();
@@ -2619,10 +2772,17 @@ function registerIpc() {
     return true;
   });
 
-  /** 把文件移动进 DeskGlow\文件收纳（拖进「文件合集」= 放进软件文件夹） */
-  ipcMain.handle('archive:addFiles', async (e, paths) => {
-    const dir = vault.dirs().archive;
+  /** 把文件移动进当前文件夹。没指定时放进 DeskGlow\文件收纳。 */
+  ipcMain.handle('archive:addFiles', async (e, payload) => {
+    const paths = Array.isArray(payload) ? payload : (payload && payload.paths) || [];
+    let dir = vault.dirs().archive;
+    if (payload && !Array.isArray(payload) && payload.dir) {
+      const picked = canBrowse(payload.dir);
+      if (!picked) return { moved: 0, skipped: paths, error: '不能放进这个文件夹' };
+      dir = picked;
+    }
     vault.ensure();
+    try { fs.mkdirSync(dir, { recursive: true }); } catch (_) {}
     let moved = 0;
     const skipped = [];
     for (const p of paths || []) {
@@ -2645,6 +2805,14 @@ function registerIpc() {
   });
 
   ipcMain.handle('vault:open', (e, which) => vault.open(which || 'root'));
+
+  /** 换「快捷方式」/「文件收纳」/根目录的位置，现有文件一起搬过去 */
+  ipcMain.handle('vault:relocate', (e, payload) => {
+    const kind = typeof payload === 'string' ? payload : payload && payload.kind;
+    const useDefault = !!(payload && typeof payload === 'object' && payload.useDefault);
+    return relocateVault(kind, { useDefault });
+  });
+
 
   /** 把桌面上的普通文件 / 文件夹收进 DeskGlow\文件收纳，桌面就干净了 */
   ipcMain.handle('vault:importFiles', async () => {
@@ -2807,7 +2975,7 @@ function registerIpc() {
 
   ipcMain.handle('file:menu', (e, p) => {
     popupMenu(popupWin || dockWin, [
-      { label: '打开', click: () => sc.launch(p) },
+      { label: '打开', click: () => openCollected(p) },
       { label: '在资源管理器中显示', click: () => shell.showItemInFolder(p) },
       { type: 'separator' },
       { label: '复制路径', click: () => require('electron').clipboard.writeText(p) },
@@ -2824,7 +2992,10 @@ function registerIpc() {
     return true;
   });
 
-  ipcMain.handle('archive:mkdir', (e, name) => createArchiveFolder(name));
+  ipcMain.handle('archive:mkdir', (e, payload) => {
+    if (payload && typeof payload === 'object') return createArchiveFolder(payload.name, payload.dir);
+    return createArchiveFolder(payload);
+  });
 
   ipcMain.handle('views:refresh', () => refreshViews());
 
@@ -2973,14 +3144,81 @@ function askNewFolder() {
   if (win) win.webContents.send('archive:nameFolder');
 }
 
-function createArchiveFolder(name) {
+function pathInside(root, target) {
+  const r = path.resolve(root).toLowerCase();
+  const t = path.resolve(target).toLowerCase();
+  return t === r || t.startsWith(r + path.sep.toLowerCase());
+}
+
+/** 只允许看桌面和「文件收纳」里面的文件夹，避免跳到别的盘符。 */
+function canBrowse(dir) {
+  if (!dir) return '';
+  let full = '';
+  try { full = fs.realpathSync(path.resolve(String(dir))); } catch (_) { return ''; }
+  const roots = [];
+  try { roots.push(...sc.desktopDirs()); } catch (_) {}
+  try { roots.push(vault.dirs().archive); } catch (_) {}
+  for (const root of roots) {
+    let real = '';
+    try { real = fs.realpathSync(root); } catch (_) { continue; }
+    if (pathInside(real, full)) return full;
+  }
+  return '';
+}
+
+function openCollected(p) {
+  let isDir = false;
+  try { isDir = fs.statSync(p).isDirectory(); } catch (_) {}
+  if (isDir && popupWin && !popupWin.isDestroyed() && popupParams && popupParams.kind === 'archive') {
+    popupWin.webContents.send('archive:enter', { path: p, name: path.basename(p) });
+    return;
+  }
+  sc.launch(p);
+}
+
+async function readArchiveDir(dir) {
+  const full = canBrowse(dir);
+  if (!full) return { ok: false, error: '不能打开这个位置' };
+  let st;
+  try { st = fs.statSync(full); } catch (_) { return { ok: false, error: '文件夹不在了' }; }
+  if (!st.isDirectory()) return { ok: false, error: '这不是文件夹' };
+  const entries = vault.listDir(full);
+  const need = [];
+  for (const e of entries) {
+    if (sc.hasCached(e.path, 0)) continue;
+    need.push(sc.buildJob(e.path, { path: e.path }, null));
+  }
+  if (need.length) {
+    try { await sc.extractIcons(need); } catch (_) {}
+  }
+  return {
+    ok: true,
+    path: full,
+    items: entries.map((e) => ({
+      path: e.path,
+      name: e.name,
+      ext: e.ext,
+      isDir: !!e.isDir,
+      mtime: e.mtime,
+      icon: iconUrl(e.path) || '',
+    })),
+  };
+}
+
+function createArchiveFolder(name, dir) {
   const clean = String(name || '').trim().replace(/[\\/:*?"<>|]/g, '').replace(/[. ]+$/g, '');
   if (!clean || clean === '.' || clean === '..') return { ok: false, error: '请换一个文件夹名' };
-  const dir = vault.dirs().archive;
+  let base = vault.dirs().archive;
+  if (dir) {
+    const picked = canBrowse(dir);
+    if (!picked) return { ok: false, error: '不能在这里新建文件夹' };
+    base = picked;
+  }
   vault.ensure();
   let dest = '';
   try {
-    dest = vault.uniquePath(dir, clean);
+    fs.mkdirSync(base, { recursive: true });
+    dest = vault.uniquePath(base, clean);
     fs.mkdirSync(dest);
   } catch (e) {
     return { ok: false, error: vault.explainMoveError(e) };

@@ -193,6 +193,9 @@ function viewFingerprint(s) {
     st.archiveCount,
     v.desktopFiles,
     v.desktopShortcuts,
+    v.root,
+    v.shortcuts,
+    v.archive,
   ].join('|');
 }
 
@@ -405,6 +408,27 @@ function renderGroups() {
 }
 
 /* ------------------------------ 文件收纳 ------------------------------ */
+async function relocateVault(kind, useDefault, btn) {
+  if (btn) btn.disabled = true;
+  let r = null;
+  try {
+    r = await api.invoke('vault:relocate', { kind, useDefault: !!useDefault });
+  } catch (err) {
+    r = { ok: false, error: String((err && err.message) || err) };
+  }
+  if (btn && btn.isConnected) btn.disabled = false;
+  if (!r || r.canceled) return;
+  if (!r.ok) return toast(r.error || '没能换到新位置', 'err');
+  if (r.vault) {
+    state.vault = { ...(state.vault || {}), ...r.vault };
+    renderArchive();
+  }
+  const failed = (r.failed || []).length;
+  if (failed) toast(`已迁移 ${r.moved} 个项目，还有 ${failed} 个没搬动（仍在原文件夹）`, 'err');
+  else if (r.moved) toast(`已迁移 ${r.moved} 个项目到新位置`);
+  else toast('文件夹位置已更新');
+}
+
 function renderArchive() {
   const a = state.archive;
   const v = state.vault || {};
@@ -412,9 +436,19 @@ function renderArchive() {
   $('#swOther').checked = !!a.includeOther;
   $('#archiveCount').textContent = state.archiveItems.length;
 
-  if ($('#vaultRoot')) $('#vaultRoot').textContent = v.root || '—';
-  if ($('#vaultShortcuts')) $('#vaultShortcuts').textContent = v.shortcuts || '—';
-  if ($('#vaultArchive')) $('#vaultArchive').textContent = v.archive || '—';
+  const custom = v.custom || {};
+  const row = (pathId, tagId, value, isCustom) => {
+    const el = $('#' + pathId);
+    if (el) el.textContent = value || '—';
+    const tag = $('#' + tagId);
+    if (tag) tag.hidden = !isCustom;
+  };
+  row('vaultRoot', 'vaultRootTag', v.root, custom.root);
+  row('vaultShortcuts', 'vaultShortcutsTag', v.shortcuts, custom.shortcuts);
+  row('vaultArchive', 'vaultArchiveTag', v.archive, custom.archive);
+  const resetBtn = $('#btnVaultReset');
+  if (resetBtn) resetBtn.hidden = !(custom.root || custom.shortcuts || custom.archive);
+
   if ($('#vaultHint')) {
     const nf = Number(v.desktopFiles) || 0;
     $('#vaultHint').textContent = nf
@@ -491,6 +525,15 @@ function previewIconFilter(a) {
   $('#shadowOffset').setAttribute('dy', String(y));
   $('#shadowFlood').setAttribute('flood-color', sh.color || '#141838');
   $('#shadowFlood').setAttribute('flood-opacity', al.toFixed(3));
+  const pad = Math.ceil(Math.max(0, blur) * 2.4 + Math.abs(y) + (strokeOn ? w : 0) * 3 + 36);
+  const fx = $('#iconFx');
+  if (fx) {
+    fx.setAttribute('filterUnits', 'userSpaceOnUse');
+    fx.setAttribute('x', String(-pad));
+    fx.setAttribute('y', String(-pad));
+    fx.setAttribute('width', String(pad * 2 + 280));
+    fx.setAttribute('height', String(pad * 2 + 280));
+  }
   return 'url(#iconFx)';
 }
 
@@ -645,30 +688,37 @@ function syncAppearanceLocks() {
 function updatePreview() {
   const a = state.appearance;
   const dock = $('#pDock');
+  const fill = $('#pFill');
   const rgb = rgbOf(a);
   const top = Math.min(1, (a.opacity / 100) * 1.2);
   const bottom = Math.min(1, (a.opacity / 100) * 0.9);
-  const glass = a.glassOn !== false;
+  const glass = a.glassOn !== false && Number(a.opacity) > 0;
   dock.style.padding = `${Math.round(a.iconSize * 0.14)}px ${Math.round(a.iconSize * 0.2)}px`;
   dock.style.gap = Math.max(3, a.gap * 0.6) + 'px';
-  dock.style.borderRadius = Math.min(22, a.radius * 0.62) + 'px';
-  dock.style.background = glass ? `linear-gradient(168deg, rgba(${rgb},${top}), rgba(${rgb},${bottom}))` : 'transparent';
-  dock.style.borderColor = glass ? '' : 'transparent';
-  dock.style.backdropFilter = glass ? `blur(${Math.min(16, a.blur)}px)` : 'none';
-  const inset = a.theme === 'dark' ? 'inset 0 1px 0 rgba(255,255,255,0.10)' : 'inset 0 1px 0 rgba(255,255,255,0.7)';
-  dock.style.boxShadow = glass ? inset : 'none';
+  if (fill) {
+    const radius = Math.min(22, a.radius * 0.62);
+    fill.style.borderRadius = radius + 'px';
+    fill.style.background = glass ? `linear-gradient(168deg, rgba(${rgb},${top}), rgba(${rgb},${bottom}))` : 'transparent';
+    fill.style.borderColor = glass ? '' : 'transparent';
+    fill.style.backdropFilter = glass ? `blur(${Math.min(16, a.blur)}px)` : 'none';
+    const inset = a.theme === 'dark' ? 'inset 0 1px 0 rgba(255,255,255,0.10)' : 'inset 0 1px 0 rgba(255,255,255,0.7)';
+    fill.style.boxShadow = glass ? inset : 'none';
+  }
 
   const shade = $('#pShade');
   const bsh = a.barShadow || {};
   if (shade) {
-    const on = glass && !!bsh.on;
+    const on = a.glassOn !== false && !!bsh.on;
     shade.style.display = on ? 'block' : 'none';
     const al = Math.max(0, Math.min(0.8, (bsh.alpha == null ? 22 : Number(bsh.alpha)) / 100));
     const srgb = hexToRgb(bsh.color) || (a.theme === 'dark' ? '0, 0, 0' : '28, 32, 74');
     const blur = Math.max(0, Number(bsh.blur) || 0);
     const y = Number(bsh.y) || 0;
-    shade.style.height = Math.max(16, Math.min(32, Math.round(12 + blur * 0.28 + Math.max(0, y) * 0.18))) + 'px';
-    shade.style.background = `linear-gradient(to bottom, rgba(${srgb},${al.toFixed(3)}) 0%, rgba(${srgb},${(al * 0.32).toFixed(3)}) 46%, transparent 100%)`;
+    const reach = Math.max(14, Math.min(44, Math.round(8 + blur * 0.38 + Math.max(0, y) * 0.22)));
+    const hide = Math.max(6, Math.min(14, Math.round(4 + blur * 0.08)));
+    shade.style.height = (reach + hide) + 'px';
+    shade.style.bottom = (-reach) + 'px';
+    shade.style.background = `linear-gradient(to bottom, rgba(${srgb},${al.toFixed(3)}) 0%, rgba(${srgb},${(al * 0.4).toFixed(3)}) 36%, rgba(${srgb},${(al * 0.1).toFixed(3)}) 68%, transparent 90%, transparent 100%)`;
   }
 
   const filter = previewIconFilter(a);
@@ -676,8 +726,9 @@ function updatePreview() {
     const s = Math.max(12, a.iconSize * 0.42);
     n.style.width = s + 'px';
     n.style.height = s + 'px';
-    n.style.borderRadius = Math.round(s * 0.26) + 'px';
     n.style.filter = filter;
+    const chip = n.querySelector('i');
+    if (chip) chip.style.borderRadius = Math.round(s * 0.26) + 'px';
   });
   syncAppearanceLocks();
 }
@@ -1274,6 +1325,17 @@ function bindEvents() {
 
   // DeskGlow 软件文件夹
   $('#btnOpenVault').onclick = () => api.invoke('vault:open', 'root');
+  const vaultBox = $('#vaultPathBox');
+  if (vaultBox) {
+    vaultBox.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-move]');
+      if (!btn) return;
+      relocateVault(btn.dataset.move, false, btn);
+    });
+  }
+  if ($('#btnVaultReset')) {
+    $('#btnVaultReset').onclick = (e) => relocateVault('root', true, e.currentTarget);
+  }
   $('#btnImportFiles').onclick = async (e) => {
     const btn = e.currentTarget;
     btn.disabled = true;
