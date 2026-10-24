@@ -104,12 +104,24 @@ html, body {
 .items-wrap,
 .pinned { position: relative; z-index: 1; }
 
-/* 关闭玻璃底板，或背景透明度是 0：只剩图标，不留一圈切割线 */
-body[data-glass='false'] .bar-fill,
-body[data-fill='off'] .bar-fill {
+/* 关掉玻璃底板：底色、边框、顶边高光和模糊一起去掉 */
+body[data-glass='false'] .bar-fill {
   background: transparent;
   border-color: transparent;
   box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+/* 不透明度为 0 时只去掉底色。边框由 data-frame 单独决定 */
+body[data-fill='off'] .bar-fill {
+  background: transparent;
+}
+body[data-frame='false'] .bar-fill {
+  border-color: transparent;
+  box-shadow: none;
+}
+/* 底色和边框都没有时，再关掉模糊，避免壁纸上留一块看不见的毛玻璃 */
+body[data-fill='off'][data-frame='false'] .bar-fill {
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
@@ -132,10 +144,11 @@ body[data-glass='false'] .fade { display: none; }
   height: calc(var(--shade-hide, 16px) + var(--shade-reach, 28px));
   pointer-events: none;
   z-index: -1;
-  border-radius: 0 0 calc(var(--shade-reach, 28px) * 0.55) calc(var(--shade-reach, 28px) * 0.55);
+  /* 不要用大圆角去切这块渐变。圆角会切进还没淡完的颜色，底边看起来像一条弧。 */
+  border-radius: 0;
   background: linear-gradient(
     to bottom,
-    rgba(var(--shade-rgb), var(--shade-a)) 0%,
+    rgba(var(--shade-rgb), calc(var(--shade-a) * var(--shade-head, 1))) 0%,
     rgba(var(--shade-rgb), calc(var(--shade-a) * 0.42)) 34%,
     rgba(var(--shade-rgb), calc(var(--shade-a) * 0.12)) 66%,
     transparent 88%,
