@@ -50,6 +50,7 @@ const DEFAULTS = {
     view: 'icon',
     sort: 'off',
     order: [],
+    hidden: [],
   },
   taskbar: { autoTray: false, autoPin: false },
   // 小组件 = 一堆可自由摆放的元素。字段含义见 src/renderer/widget-fmt.js 的 ELEMENT_DEFS

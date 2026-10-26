@@ -228,8 +228,8 @@ function renderArchive() {
     const empty = query.trim()
       ? '没有匹配的文件'
       : inside
-        ? '这个文件夹是空的<br/>右键可以新建文件夹'
-        : '桌面上暂时没有需要收纳的文件<br/>右键可以新建文件夹';
+        ? '这个文件夹是空的<br/>右键可以新建文件'
+        : '这里还没有文件<br/>右键可以新建文件';
     $('body').innerHTML = `${bar}<div class="empty-state">${empty}</div>`;
     return;
   }
@@ -378,6 +378,10 @@ $('folderName').addEventListener('keydown', (e) => {
 });
 
 api.on('archive:nameFolder', showFolderPrompt);
+api.on('archive:refresh', async () => {
+  if (browse.length) await reloadBrowse();
+});
+api.on('popup:toast', (text) => { if (text) toast(text); });
 api.on('archive:enter', (info) => {
   if (!info || !info.path || !params || params.kind !== 'archive') return;
   enterDir(info.path, info.name);
@@ -419,14 +423,19 @@ $('body').addEventListener('contextmenu', (e) => {
     api.invoke('child:menu', { groupId: params.id, childId: cell.dataset.child });
     return;
   }
-  if (cell.dataset.path) api.invoke('file:menu', cell.dataset.path);
+  if (cell.dataset.path) api.invoke('file:menu', { path: cell.dataset.path, dir: menuDir() });
 });
+
+function menuDir() {
+  const cur = currentFolder();
+  return cur && cur.path ? cur.path : '';
+}
 
 $('card').addEventListener('contextmenu', (e) => {
   if (e.target.closest('.cell')) return;
   if (!params || params.kind !== 'archive') return;
   e.preventDefault();
-  api.invoke('archive:blankMenu');
+  api.invoke('archive:blankMenu', { dir: menuDir() });
 });
 
 document.addEventListener('keydown', (e) => {
