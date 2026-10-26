@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, ipcMain, screen, Tray, Menu, shell, nativeImage, dialog, powerMonitor, protocol, net } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, Tray, Menu, shell, nativeImage, dialog, clipboard, powerMonitor, protocol, net } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
@@ -8,6 +8,7 @@ const { pathToFileURL } = require('url');
 const store = require('./store');
 const sc = require('./shortcuts');
 const vault = require('./vault');
+const shellnew = require('./shellnew');
 const taskbar = require('./taskbar');
 const ps = require('./ps');
 const zorder = require('./zorder');
@@ -453,9 +454,10 @@ function archiveList() {
   const s = store.get();
   const list = [];
   const seen = new Set();
+  const hidden = new Set((Array.isArray(s.archive.hidden) ? s.archive.hidden : []).map((p) => String(p).toLowerCase()));
   const pushEntry = (e, inVault) => {
     const k = e.path.toLowerCase();
-    if (seen.has(k)) return;
+    if (seen.has(k) || hidden.has(k)) return;
     seen.add(k);
     list.push({
       path: e.path,
@@ -501,6 +503,26 @@ function archiveList() {
   archiveCache = list;
   archiveCacheAt = Date.now();
   return list;
+}
+
+function hiddenArchiveEntries() {
+  const s = store.get();
+  const out = [];
+  for (const p of s.archive.hidden || []) {
+    if (!p || !fs.existsSync(p)) continue;
+    let st = null;
+    try { st = fs.statSync(p); } catch { continue; }
+    const ext = path.extname(p).toLowerCase();
+    const isDir = st.isDirectory();
+    out.push({
+      path: p,
+      name: isDir ? path.basename(p) : path.basename(p, ext),
+      ext: isDir ? '' : ext,
+      isDir,
+      icon: iconUrl(p),
+    });
+  }
+  return out;
 }
 
 function iconUrl(p) {
@@ -642,6 +664,7 @@ function buildState() {
     widgets: s.widgets,
     items,
     archiveItems: archive,
+    archiveHidden: hiddenArchiveEntries(),
     stats: {
       shortcuts,
       groups: (s.items || []).filter((i) => i.kind === 'group').length,
@@ -2132,6 +2155,7 @@ function rewritePathsForMoves(moves) {
   }
   if (Array.isArray(s.removedPaths)) s.removedPaths = s.removedPaths.map(fix);
   if (s.archive && Array.isArray(s.archive.order)) s.archive.order = s.archive.order.map(fix);
+  if (s.archive && Array.isArray(s.archive.hidden)) s.archive.hidden = s.archive.hidden.map(fix);
   return n;
 }
 
@@ -2785,16 +2809,20 @@ function registerIpc() {
     try { fs.mkdirSync(dir, { recursive: true }); } catch (_) {}
     let moved = 0;
     const skipped = [];
+    const landed = [];
+    dropHidden(paths);
     for (const p of paths || []) {
       if (!p) continue;
       try {
         const st = fs.statSync(p);
         if (!st) continue;
         if (path.dirname(p).toLowerCase() === dir.toLowerCase()) { skipped.push(p); continue; }
-        vault.moveInto(dir, p);
+        landed.push(vault.moveInto(dir, p));
         moved++;
       } catch (_) { skipped.push(p); }
     }
+    if (landed.length) dropHidden(landed);
+    store.save(true);
     if (moved) {
       refreshDesktop();
       await refreshInspect();
@@ -2973,24 +3001,36 @@ function registerIpc() {
     return true;
   });
 
-  ipcMain.handle('file:menu', (e, p) => {
+  ipcMain.handle('file:menu', async (e, payload) => {
+    const filePath = typeof payload === 'string' ? payload : payload && payload.path;
+    const dir = payload && typeof payload === 'object' ? payload.dir : '';
+    if (!filePath) return false;
+    const submenu = await newFileSubmenu(dir || '');
     popupMenu(popupWin || dockWin, [
-      { label: '打开', click: () => openCollected(p) },
-      { label: '在资源管理器中显示', click: () => shell.showItemInFolder(p) },
+      { label: '打开', click: () => openCollected(filePath) },
+      { label: '在资源管理器中显示', click: () => shell.showItemInFolder(filePath) },
+      { label: '复制文件路径', click: () => copyCollectedPath(filePath) },
       { type: 'separator' },
-      { label: '复制路径', click: () => require('electron').clipboard.writeText(p) },
+      { label: '移出文件收纳', click: () => { confirmRemoveFile(filePath); } },
       { type: 'separator' },
-      { label: '新建文件夹', click: () => askNewFolder() },
+      submenu,
     ]);
     return true;
   });
 
-  ipcMain.handle('archive:blankMenu', () => {
+  ipcMain.handle('archive:blankMenu', async (e, payload) => {
+    const dir = payload && payload.dir ? payload.dir : '';
+    const submenu = await newFileSubmenu(dir);
+    const here = resolveNewDir(dir) || vault.dirs().archive;
     popupMenu(popupWin, [
-      { label: '新建文件夹', click: () => askNewFolder() },
+      submenu,
+      { type: 'separator' },
+      { label: '复制路径', click: () => copyCollectedPath(here) },
     ]);
     return true;
   });
+
+  ipcMain.handle('archive:show', (e, filePath) => showArchiveFile(filePath));
 
   ipcMain.handle('archive:mkdir', (e, payload) => {
     if (payload && typeof payload === 'object') return createArchiveFolder(payload.name, payload.dir);
@@ -3139,6 +3179,226 @@ async function refreshViews() {
   return { ok: true, healed };
 }
 
+function popupParent() {
+  return popupWin && !popupWin.isDestroyed() ? popupWin : undefined;
+}
+
+function copyCollectedPath(p) {
+  const text = String(p || '');
+  if (!text) return;
+  clipboard.writeText(text);
+  const win = popupParent();
+  if (win) win.webContents.send('popup:toast', '已复制路径');
+}
+
+function notifyArchive() {
+  const win = popupParent();
+  if (win) win.webContents.send('archive:refresh');
+}
+
+async function tellPopup(message, detail) {
+  const opts = {
+    type: 'warning',
+    buttons: ['知道了'],
+    noLink: true,
+    title: '文件收纳',
+    message,
+    detail: detail || '',
+  };
+  const parent = popupParent();
+  if (parent) await dialog.showMessageBox(parent, opts);
+  else await dialog.showMessageBox(opts);
+}
+
+function dropHidden(paths) {
+  const drop = new Set((paths || []).filter(Boolean).map((p) => String(p).toLowerCase()));
+  if (!drop.size) return;
+  const s = store.get();
+  if (!Array.isArray(s.archive.hidden)) s.archive.hidden = [];
+  s.archive.hidden = s.archive.hidden.filter((p) => !drop.has(String(p).toLowerCase()));
+}
+
+function addHidden(paths) {
+  const s = store.get();
+  if (!Array.isArray(s.archive.hidden)) s.archive.hidden = [];
+  const have = new Set(s.archive.hidden.map((p) => String(p).toLowerCase()));
+  for (const p of paths || []) {
+    if (!p) continue;
+    const low = String(p).toLowerCase();
+    if (have.has(low)) continue;
+    have.add(low);
+    s.archive.hidden.push(p);
+  }
+}
+
+function isInsideArchive(filePath) {
+  let root = '';
+  try { root = path.resolve(vault.dirs().archive); } catch { return false; }
+  let full = '';
+  try { full = path.resolve(filePath); } catch { return false; }
+  return pathInside(root, full);
+}
+
+function resolveNewDir(dir) {
+  if (!dir) {
+    const root = vault.dirs().archive;
+    try { fs.mkdirSync(root, { recursive: true }); } catch (_) {}
+    return root;
+  }
+  const picked = canBrowse(dir);
+  if (!picked) return '';
+  try {
+    if (!fs.statSync(picked).isDirectory()) return '';
+  } catch { return ''; }
+  return picked;
+}
+
+async function newFileSubmenu(dir) {
+  const types = await shellnew.list();
+  const submenu = [{ label: '文件夹', click: () => askNewFolder() }];
+  if (types.length) submenu.push({ type: 'separator' });
+  for (const spec of types) {
+    submenu.push({
+      label: spec.label,
+      click: () => { createCollectedFile(dir, spec); },
+    });
+  }
+  return { label: '新建', submenu };
+}
+
+async function createCollectedFile(dir, spec) {
+  const base = resolveNewDir(dir);
+  if (!base) {
+    await tellPopup('不能在这里新建文件');
+    return;
+  }
+  const r = shellnew.create(base, spec);
+  if (!r || !r.ok) {
+    await tellPopup((r && r.error) || '没能创建文件');
+    return;
+  }
+  if (r.path) {
+    dropHidden([r.path]);
+    invalidateArchive();
+    refreshDesktop();
+    try { await warmIcons(); } catch (_) {}
+    store.save(true);
+    broadcast();
+  }
+  notifyArchive();
+  const win = popupParent();
+  if (win) win.webContents.send('popup:toast', r.opened ? '已打开新建' : `已创建「${r.name}」`);
+}
+
+function showArchiveFile(filePath) {
+  const listed = path.resolve(String(filePath || ''));
+  if (!listed || !fs.existsSync(listed)) {
+    dropHidden([listed]);
+    invalidateArchive();
+    store.save(true);
+    broadcast();
+    return { ok: false, error: '文件已经不在了' };
+  }
+  if (!canBrowse(listed)) return { ok: false, error: '不能显示这个文件' };
+  let dest = listed;
+  let st = null;
+  try { st = fs.statSync(listed); } catch { return { ok: false, error: '文件已经不在了' }; }
+  const entry = {
+    ext: path.extname(listed).toLowerCase(),
+    isDir: st.isDirectory(),
+    isShortcut: entryIsShortcut(listed),
+  };
+  if (!isInsideArchive(listed) && !entry.isShortcut && !sc.extAllowed(store.get().archive, entry)) {
+    try {
+      vault.ensure();
+      dest = vault.moveInto(vault.dirs().archive, listed);
+    } catch (err) {
+      return { ok: false, error: vault.explainMoveError(err) };
+    }
+  }
+  dropHidden([listed, dest]);
+  invalidateArchive();
+  refreshDesktop();
+  store.save(true);
+  broadcast();
+  notifyArchive();
+  return { ok: true, path: dest };
+}
+
+function entryIsShortcut(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  return ext === '.lnk' || ext === '.url';
+}
+
+async function confirmRemoveFile(filePath) {
+  const listed = path.resolve(String(filePath || ''));
+  if (!listed || !fs.existsSync(listed)) return false;
+  if (!canBrowse(listed)) return false;
+  if (vault.samePath(listed, vault.dirs().archive)) return false;
+  let st = null;
+  try { st = fs.statSync(listed); } catch { return false; }
+  const name = path.basename(listed);
+  const kind = st.isDirectory() ? '文件夹' : '文件';
+  const inVault = isInsideArchive(listed);
+  const parent = popupParent();
+  const box = (opts) => (parent ? dialog.showMessageBox(parent, opts) : dialog.showMessageBox(opts));
+  const r = await box({
+    type: 'question',
+    buttons: ['移出', '取消'],
+    defaultId: 0,
+    cancelId: 1,
+    noLink: true,
+    title: '移出文件收纳',
+    message: `把「${name}」移出文件收纳？`,
+    detail: inVault
+      ? `${kind}会回到桌面，文件收纳里不再显示。之后可以在控制面板的「未显示」里重新打开。`
+      : `${kind}留在原处，文件收纳里不再显示。之后可以在控制面板的「未显示」里重新打开。`,
+  });
+  if (r.response !== 0) return false;
+  const done = takeOffArchive(listed);
+  if (done.ok) {
+    notifyArchive();
+    return true;
+  }
+  if (done.error) {
+    await box({
+      type: 'warning',
+      buttons: ['知道了'],
+      noLink: true,
+      title: '没能移出',
+      message: `${kind}还在原来的位置`,
+      detail: done.error,
+    });
+  }
+  return false;
+}
+
+function takeOffArchive(listed) {
+  if (!listed || !fs.existsSync(listed)) return { ok: false, error: '文件已经不在了' };
+  if (vault.samePath(listed, vault.dirs().archive)) return { ok: false, error: '不能移出文件收纳文件夹本身' };
+  let dest = listed;
+  if (isInsideArchive(listed)) {
+    const desk = userDesktop();
+    if (!desk) return { ok: false, error: '找不到桌面文件夹' };
+    try {
+      dest = vault.moveInto(desk, listed);
+    } catch (e) {
+      return { ok: false, error: vault.explainMoveError(e) };
+    }
+  }
+  addHidden([listed, dest]);
+  const s = store.get();
+  if (Array.isArray(s.archive.order)) {
+    const drop = new Set([listed, dest].filter(Boolean).map((p) => String(p).toLowerCase()));
+    s.archive.order = s.archive.order.filter((p) => !drop.has(String(p).toLowerCase()));
+  }
+  invalidateArchive();
+  refreshDesktop();
+  store.save(true);
+  broadcast();
+  return { ok: true, path: dest };
+}
+
 function askNewFolder() {
   const win = popupWin && !popupWin.isDestroyed() ? popupWin : null;
   if (win) win.webContents.send('archive:nameFolder');
@@ -3182,7 +3442,8 @@ async function readArchiveDir(dir) {
   let st;
   try { st = fs.statSync(full); } catch (_) { return { ok: false, error: '文件夹不在了' }; }
   if (!st.isDirectory()) return { ok: false, error: '这不是文件夹' };
-  const entries = vault.listDir(full);
+  const hidden = new Set((Array.isArray(store.get().archive.hidden) ? store.get().archive.hidden : []).map((p) => String(p).toLowerCase()));
+  const entries = vault.listDir(full).filter((e) => !hidden.has(String(e.path).toLowerCase()));
   const need = [];
   for (const e of entries) {
     if (sc.hasCached(e.path, 0)) continue;
@@ -3412,6 +3673,7 @@ if (!gotLock) {
     if (dpiPromise && maybeRelaunchForStartupDpi(await dpiPromise)) return;
 
     createDock();
+    setTimeout(() => { shellnew.list().catch(() => {}); }, 2000);
     if (store.get().widgets.enabled !== false) {
       createWidget();
       startWidgetWatch();

@@ -190,6 +190,7 @@ function viewFingerprint(s) {
     a.view || 'icon',
     a.sort || 'off',
     (s.archiveItems || []).map((i) => `${i.path}:${i.mtime || 0}`).join(','),
+    (s.archiveHidden || []).map((i) => i.path).join(','),
     st.archiveCount,
     v.desktopFiles,
     v.desktopShortcuts,
@@ -473,6 +474,21 @@ function renderArchive() {
         )
         .join('')
     : `<div class="list-empty">桌面上暂时没有符合规则的文件</div>`;
+
+  const hidden = state.archiveHidden || [];
+  const hiddenBox = $('#archiveHidden');
+  if (hiddenBox) {
+    hiddenBox.innerHTML = hidden.length
+      ? hidden.map((it) => `<div class="row" data-path="${esc(it.path)}">
+        ${iconHTML(it)}
+        <div class="info"><div class="name">${esc(it.name)}${it.isDir ? '' : esc(it.ext)}</div><div class="path">${esc(it.path)}</div></div>
+        <label class="switch dock-sw" title="重新显示">
+          <input type="checkbox" data-act="toggle" />
+          <span class="track"></span>
+        </label>
+      </div>`).join('')
+      : `<div class="list-empty">没有移出的文件</div>`;
+  }
 }
 
 /* ------------------------------ 任务栏 ------------------------------ */
@@ -1382,6 +1398,20 @@ function bindEvents() {
     const row = e.target.closest('.row');
     if (row) api.invoke('item:launch', row.dataset.path);
   });
+  const hiddenBox = $('#archiveHidden');
+  if (hiddenBox) {
+    hiddenBox.addEventListener('change', async (e) => {
+      const input = e.target.closest('[data-act="toggle"]');
+      const row = input && input.closest('.row');
+      if (!row) return;
+      if (!input.checked) { input.checked = false; return; }
+      const r = await api.invoke('archive:show', row.dataset.path);
+      if (!r || !r.ok) {
+        input.checked = false;
+        toast((r && r.error) || '没能重新显示', 'err');
+      } else toast('已重新显示');
+    });
+  }
 
   // 任务栏
   const runTb = async (action, okText, btn) => {
